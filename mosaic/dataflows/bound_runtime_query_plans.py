@@ -246,6 +246,9 @@ def _l3_plan(
                 "max_items": 12,
             },
         )
+    _append(followups, allowed, "get_rke_research_context", {
+        "agent_id": agent_id, "as_of": as_of, "layer": "superinvestor", "max_items": 12,
+    })
     if "get_industry_policy_digest" in allowed and candidates:
         filters = THS_INDUSTRY_FILTERS.get(candidates[0]["source_sector_agent_id"])
         if not filters or not filters[0].strip():

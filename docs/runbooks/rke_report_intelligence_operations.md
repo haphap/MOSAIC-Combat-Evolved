@@ -54,6 +54,24 @@ are private derived text for approved internal research; they are not public-saf
 artifacts. Raw report paragraphs, source spans, review notes and local paths are
 still excluded from Agent output. Source authorization and PIT checks still apply.
 
+Case retrieval uses rank policy v4. Stock, sector and Agent labels are ranking
+preferences rather than case access requirements. Research questions, historical
+regimes and reasoning participate in lexical relevance ranking; source metadata
+does not substitute for argument content. Unrelated cases can remain in the
+candidate set, so a larger match count is not proof of relevance. Source diversity
+breaks ties within a relevance level. Existing forecast rows retain their target
+and role filters. No extracted tags or private case records need to be rewritten.
+
+Sector and Superinvestor frozen plans include a broad RKE request alongside their
+targeted requests. Active Superinvestor argument schemas allow omitted ticker and
+sector; the historical preservation overlay is unchanged. An empty trading
+candidate set can still authorize an RKE-only query. Frozen source receipts,
+execution identity, date limits, query budgets and trade-universe restrictions
+remain enforced. Existing frozen bundles do not gain this request: prepare new
+bundles with the current code and generated active manifests. The eight current
+Macro runtime Agents still expose only their snapshot tools; improved Macro query
+selection alone does not grant them a runtime RKE capability.
+
 Follow the existing `pull -> preflight -> hydrate` sequence below into an existing
 clean staging checkout. Preserve unexported work and stop concurrent writers.
 Preview with the same staging root and registry path that apply will use:

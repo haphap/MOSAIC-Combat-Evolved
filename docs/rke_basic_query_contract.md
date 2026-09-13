@@ -1,25 +1,46 @@
-# RKE basic query contract v3
+# RKE research query contract v4
 
 The CLI export, Bridge JSON API and Agent materialization read only
-`forecast_claims.jsonl` and `report_metadata.jsonl`. Outcome labels,
+`forecast_claims.jsonl`, `report_metadata.jsonl` and
+`analytical_footprints.jsonl`. Outcome labels,
 source/viewpoint profiles, weighted contexts, recipes, gaps and stock/industry
 snapshots are offline artifacts. Their absence, changes or malformed JSON do
-not change the basic query. The row-based builder now has the same two-input
+not change the basic query. The row-based builder now has the same three-input
 contract: it no longer accepts or constructs those derived fields. Offline
 Report Intelligence builders remain responsible for their own artifacts.
 
 ## Selection and output
 
-Contexts use `rke_agent_research_context_v3` and rank policy
-`rke_agent_research_context_rank_v2`. Matching retains the existing Agent,
-role/style, ticker and sector restrictions. Sort order is target specificity,
-latest available date first, then redacted claim ID ascending; truncation
-happens after sorting. Availability uses the latest supplied claim signal,
-claim as-of, report publication and accessibility date. A later accessibility
-date cannot be overridden by an earlier publication date. The runtime formatter
-rejects unknown, invalid or future availability.
+Contexts use `rke_agent_research_context_v4` and rank policy
+`rke_agent_research_context_rank_v4`. Authorized, point-in-time research cases
+are eligible across stock, industry and supported Agent roles. Lexical overlap
+between the case's question, historical regime, reasoning and role/sector
+preferences ranks cases before ticker matches, legacy metadata specificity and
+recency. Role labels are preferences; an absent label is not a permission failure.
+This is lexical retrieval, not an embedding model or a guarantee of relevance.
+Independent sources are preferred among equally relevant cases. Existing forecast
+records retain their stock, industry and role restrictions.
 
-Basic items contain redacted identity, target, direction, horizon, regime,
+Availability uses the latest supplied claim signal, claim as-of, report publication
+and accessibility date. A later accessibility date cannot be overridden by an
+earlier publication date. Case source identity, internal-use permission and PIT
+remain required; runtime formatting rejects invalid or future availability.
+
+Sector and Superinvestor frozen plans provide a broad RKE request in addition to
+stock/sector-preferred requests. Active Superinvestor schemas make those preferences
+optional while leaving frozen historical overlays untouched. Empty trading candidate
+sets permit RKE-only queries, not other private market queries. Identity, dates,
+receipts, finite query requests and trade scopes remain enforced. Prepare a new
+bundle to use the new request; old sealed bundles remain immutable. Current Macro
+runtime tool rosters still contain only their snapshot tool, so Macro query API
+support is distinct from runtime tool authorization. Gate D maps the four historical
+Superinvestor RKE bindings to active argument contracts while retaining every other
+contract field; both historical and active identities remain in the evidence.
+
+Research cases include the source question, historical regime, reasoning, evidence,
+conditions and conclusion. They remain private derived content, and must be
+reassessed against current data before use. Other basic items contain redacted
+identity, target, direction, horizon, regime,
 availability and shadow/current-data requirements. They contain no historical
 scores, weights, outcome summaries, recipe/gap IDs or snapshot features.
 Markdown renders these facts without the old context hash, rank/priority audit
@@ -30,7 +51,7 @@ and shadow-use constraints still reject invalid input.
 
 The old post-run re-query attribution is removed with the PR #28 change.
 Completed Agent outputs alone do not establish RKE use. Legacy benchmark
-footprints with rank v1 remain readable; new basic contexts use rank v2. No
+footprints with rank v1 remain readable; new research contexts use rank v4. No
 historical hash or usage record is relabeled. This change does not establish
 trading benefit or a measured live success-rate improvement.
 
@@ -52,8 +73,8 @@ coverage hashing use those same bytes. Metadata for nonempty source attestation
 comes from the same read. File mtime/size caching is removed, so subsequent
 queries observe same-size updates even when the timestamp is preserved.
 
-Empty attestation requires both basic files and a no-prior reason; missing
-inputs are not true empty. It hashes two inputs, down from ten, and builds the
+Empty attestation requires all three basic files and a no-prior reason; missing
+inputs are not true empty. It hashes the three consumed inputs, and builds the
 context once instead of twice. These are the exact inputs consumed by this
 query, not a transaction across concurrently edited files. Private input bytes
 and metadata remain inside server-side materialization and are never rendered.
@@ -99,5 +120,5 @@ sealed results retain their original fields and hashes; no private history or
 frozen result is rewritten in place. Materialize a new query using one code
 revision throughout. Rollback restores Python, TypeScript and Schema changes
 together and creates fresh materializations with the restored revision; never
-relabel v3 contexts or v2 source receipts as their predecessors. No private
+relabel historical contexts or source receipts as a different version. No private
 input files are migrated or deleted.

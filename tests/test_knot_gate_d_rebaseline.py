@@ -285,6 +285,22 @@ def test_gate_d_candidate_closes_26_stages_199_bindings_and_shared_cio_prompt():
     Draft202012Validator(candidate_schema).validate(candidate)
 
 
+@pytest.mark.parametrize("field", [
+    "privacy_contract_hash", "materializer_contract_hash",
+    "route_contract_hash", "output_semantics_hash",
+])
+def test_gate_d_rke_argument_migration_preserves_other_contract_fields(field):
+    data = _fixture()
+    binding = next(row for row in data["bundle"]["binding_manifest"]["bindings"]
+                   if row["agent_id"] == "ackman" and row["tool_id"] == "get_rke_research_context")
+    binding[field] = HASH
+    with pytest.raises(ValueError, match="active binding mapping mismatch"):
+        build_knot_gate_d_fixture_evidence(
+            root=ROOT, capability_bundle=data["bundle"],
+            training_projections_by_stage=data["projections"],
+        )
+
+
 def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
     data = _fixture()
     evidence = build_knot_gate_d_fixture_evidence(

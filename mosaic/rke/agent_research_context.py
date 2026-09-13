@@ -20,7 +20,7 @@ from .research_case import normalize_research_case
 SCHEMA_VERSION = "rke_agent_research_context_v4"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
-RANKING_POLICY_ID = "rke_agent_research_context_rank_v3"
+RANKING_POLICY_ID = "rke_agent_research_context_rank_v4"
 FORBIDDEN_FIELD_POLICY = "internal_research_cases_only_raw_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
@@ -61,6 +61,18 @@ SUPERINVESTOR_AGENTS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
 DECISION_AGENTS = frozenset(
     {"alpha_discovery", "autonomous_execution", "cio", "cro", "execution"}
 )
+
+# Retrieval preferences, not source classifications or access permissions.
+MACRO_RESEARCH_KEYWORDS: Mapping[str, tuple[str, ...]] = {
+    "macro.central_bank": ("央行", "货币政策", "政策利率", "流动性", "monetary", "liquidity"),
+    "macro.china": ("中国", "内需", "信用", "社融", "房地产", "财政", "china"),
+    "macro.commodities": ("供需", "库存", "成本", "产能", "商品", "commodity", "inventory"),
+    "macro.eu_economy": ("欧洲", "欧元区", "就业", "消费", "通胀", "europe", "euro area"),
+    "macro.euro_area_financial_conditions": ("欧央行", "欧元", "融资", "利差", "流动性", "ecb"),
+    "macro.institutional_flow": ("资金流", "配置", "赎回", "资管", "机构", "fund flow"),
+    "macro.us_economy": ("美国", "就业", "消费", "通胀", "增长", "us economy", "employment"),
+    "macro.us_financial_conditions": ("美联储", "美元", "利率", "融资", "信用", "流动性", "funding"),
+}
 
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
@@ -582,6 +594,7 @@ def build_rke_agent_research_context_from_rows(
             "ticker_match": bool(ticker and str(report_meta.get("ts_code") or "").upper() == ticker.upper()),
             "case_transfer_requires_current_data": True,
             "historical_regime_from_source": case["historical_regime"],
+            "case_relevance_score": _case_relevance_score(case, normalized_agent, sector),
         })
         items.append(item)
         source_groups[item["redacted_claim_id"]] = _claim_report_key(footprint)
@@ -618,6 +631,11 @@ def build_rke_agent_research_context_from_rows(
                     seen.add(source)
         ranked_items = ([item for item in first if item.get("research_case")] + repeated
                         + [item for item in first if not item.get("research_case")])
+        # Diversify equally relevant sources without burying a relevant argument
+        # behind every unrelated source just because it shares a report.
+        ranked_items.sort(key=lambda item: (
+            0 if item.get("research_case") else 1, -item.get("case_relevance_score", 0),
+        ))
     for rank, item in enumerate(ranked_items, 1):
         item["retrieval_rank"] = rank
     visible_items = ranked_items[:max_count]
@@ -809,6 +827,14 @@ def _claim_matches_request(
     ticker: str,
     sector: str,
 ) -> bool:
+    if claim.get("research_case"):
+        layer, _, role = agent_id.partition(".")
+        return role in {
+            "macro": MACRO_AGENTS | LEGACY_MACRO_AGENTS,
+            "sector": SECTOR_AGENTS,
+            "superinvestor": SUPERINVESTOR_AGENTS,
+            "decision": DECISION_AGENTS,
+        }.get(layer, ())
     if ticker:
         wanted = ticker.strip().upper()
         claim_ticker = str(
@@ -816,7 +842,7 @@ def _claim_matches_request(
             or _ensure_mapping(claim.get("target")).get("target_id")
             or ""
         ).upper()
-        if claim_ticker != wanted and not claim.get("research_case"):
+        if claim_ticker != wanted:
             return False
     if sector:
         sector_text = _combined_text(report_meta.get("sector"), claim.get("target"))
@@ -844,10 +870,6 @@ def _claim_matches_request(
             return False
         elif requested_direction.lower() not in sector_text.lower():
             return False
-    if claim.get("research_case"):
-        candidates = {normalize_agent_id(value) for value in _ensure_str_list(claim.get("target_agent_candidates"))}
-        if agent_id in candidates:
-            return True
     if agent_id.startswith("macro."):
         return _is_macro_claim(claim, report_meta) and agent_id in _macro_agent_candidates(claim)
     if agent_id == "sector.relationship_mapper":
@@ -855,7 +877,7 @@ def _claim_matches_request(
     if agent_id.startswith("sector."):
         return _sector_agent_for_claim(claim, report_meta) == agent_id
     if agent_id.startswith("superinvestor."):
-        if not claim.get("research_case") and str(report_meta.get("report_type") or "") != "个股研报":
+        if str(report_meta.get("report_type") or "") != "个股研报":
             return False
         return _style_fit_score(agent_id, claim, report_meta) > 0
     if agent_id.startswith("decision."):
@@ -895,6 +917,8 @@ def _agent_target_specificity_bucket(
     ) >= 3:
         return "strong_role_style_match"
     if agent_id.startswith("superinvestor."):
+        if claim.get("research_case") and _style_fit_score(agent_id, claim, report_meta) == 0:
+            return "generic_agent_match"
         return "role_style_match"
     if agent_id.startswith("sector.") and _sector_agent_for_claim(claim, report_meta):
         return "sector_target_match"
@@ -1061,9 +1085,26 @@ def _style_fit_score(
         claim.get("forecast_type"),
         claim.get("metric_proxy_mapping"),
         claim.get("target"),
+        claim.get("research_case"),
     ).lower()
     keywords = SUPERINVESTOR_STYLE_KEYWORDS.get(agent_id, ())
     return sum(1 for keyword in keywords if keyword.lower() in text)
+
+
+def _case_relevance_score(case: Mapping[str, Any], agent_id: str, sector: str) -> int:
+    """Rank source arguments by lexical overlap; missing labels never hide a case."""
+    text = _combined_text(
+        case.get("question"), case.get("historical_regime"), case.get("reasoning_chain"),
+    )
+    keywords = set(MACRO_RESEARCH_KEYWORDS.get(agent_id, ()))
+    keywords.update(SECTOR_AGENT_KEYWORDS.get(agent_id, ()))
+    keywords.update(SUPERINVESTOR_STYLE_KEYWORDS.get(agent_id, ()))
+    if sector:
+        direction_agent = _sector_agent_for_direction(sector)
+        keywords.update(SECTOR_DIRECTION_KEYWORDS.get(
+            (direction_agent.removeprefix("sector."), sector), (sector,),
+        ))
+    return sum(_sector_keyword_matches(keyword, text) for keyword in keywords)
 
 
 def _style_fit_bucket(
@@ -1094,6 +1135,7 @@ def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]
 def _context_item_rank_key(item: Mapping[str, Any]) -> tuple[Any, ...]:
     return (
         0 if item.get("content_type") == "research_case" else 1,
+        -item.get("case_relevance_score", 0),
         0 if item.get("ticker_match") else 1,
         _specificity_rank(item.get("agent_target_specificity_bucket")),
         _reverse_date_key(item.get("available_date")),

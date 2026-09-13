@@ -273,7 +273,7 @@ def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_p
     payload = json.loads(capsys.readouterr().out)
     assert payload["agent_id"] == "decision.cio"
     assert payload["production_signal_allowed"] is False
-    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v3"
+    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v4"
     assert payload["summary"]["item_count"] == 3
     assert {item["domain"] for item in payload["context_items"]} == {
         "stock",
@@ -539,7 +539,7 @@ def test_context_ranks_all_matches_before_truncating():
         ],
     )
 
-    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v3"
+    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v4"
     assert context["summary"]["matched_item_count"] == 2
     assert context["summary"]["truncated_item_count"] == 1
     item = context["context_items"][0]
@@ -1617,6 +1617,59 @@ def test_research_case_transfer_keeps_original_target_and_prefers_requested_stoc
     assert [item["ticker"] for item in items] == ["000002.SZ", "000001.SZ"]
     assert all(item["case_transfer_requires_current_data"] for item in items)
     assert items[1]["ticker_match"] is False
+
+
+@pytest.mark.parametrize("agent_id", [
+    "macro.us_financial_conditions", "macro.central_bank", "sector.financials",
+    "superinvestor.munger", "decision.cio",
+])
+def test_research_case_access_does_not_require_entity_industry_or_role_tags(agent_id):
+    case = {"question": "融资成本如何影响银行收入？", "historical_regime": "高利率与市场波动",
+            "reasoning_chain": ["企业提前融资", "银行的融资中介需求增加"]}
+    metadata = [{"report_id": "R", "source_id": "S", "report_type": "宏观策略-海外",
+                 "sector": "宏观策略", "publish_datetime": "2025-01-01",
+                 "license_class": "operator_approved_internal_research_use",
+                 "derived_claim_storage_allowed": True}]
+    footprint = {"footprint_id": "F", "report_id": "R", "source_id": "S",
+                 "source_span_ids": ["PRIVATE"], "research_case": case}
+    context = build_rke_agent_research_context_from_rows(
+        agent_id=agent_id, ticker="600519.SH", sector="food_beverage",
+        as_of_date="2026-01-01", metadata=metadata, footprints=[footprint],
+    )
+    assert context["summary"]["matched_item_count"] == 1
+    assert context["context_items"][0]["research_case"]["question"] == case["question"]
+    assert context["context_items"][0]["ticker_match"] is False
+    assert case["question"] in rke_research_tools.format_rke_runtime_context(context)
+    assert build_rke_agent_research_context_from_rows(
+        agent_id="macro.not_a_real_agent", as_of_date="2026-01-01",
+        metadata=metadata, footprints=[footprint],
+    )["context_items"] == []
+
+
+def test_case_reasoning_relevance_precedes_directory_labels_and_ticker_match():
+    metadata = [{"report_id": report, "source_id": report,
+                 "ts_code": "600519.SH" if report == "unrelated" else "",
+                 "sector": "银行" if report == "unrelated" else "宏观策略",
+                 "publish_datetime": "2025-01-01",
+                 "license_class": "operator_approved_internal_research_use",
+                 "derived_claim_storage_allowed": True}
+                for report in ("related", "unrelated")]
+    footprints = [{"footprint_id": report, "report_id": report, "source_id": report,
+                   "source_span_ids": ["PRIVATE"], "research_case": case}
+                  for report, case in [
+                      ("related", {"question": "银行在高利率环境下如何增加融资收入？",
+                                   "historical_regime": "流动性收紧，融资成本上升",
+                                   "reasoning_chain": ["企业提前融资", "银行中介收入增加"]}),
+                      ("unrelated", {"question": "新品投放能否提高销量？",
+                                     "reasoning_chain": ["新品投放", "渠道铺货增加"]}),
+                  ]]
+    for agent_id in ("sector.financials", "macro.us_financial_conditions"):
+        context = build_rke_agent_research_context_from_rows(
+            agent_id=agent_id, ticker="600519.SH", as_of_date="2026-01-01",
+            metadata=metadata, footprints=footprints,
+        )
+        assert context["summary"]["matched_item_count"] == 2
+        assert context["context_items"][0]["research_case"]["question"].startswith("银行")
 
 
 @pytest.mark.parametrize("agent_id", ["cio", "decision.cio"])

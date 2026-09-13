@@ -142,9 +142,14 @@ def test_l3_plan_derives_exact_candidate_scope_and_finite_legacy_queries() -> No
         row
         for row in plan["query_requests"]
         if row["tool_id"] == "get_rke_research_context"
-        and row["args"]["ticker"] == "000858.SZ"
+        and row["args"].get("ticker") == "000858.SZ"
     )
     assert rke_request["args"]["sector"] == "baijiu"
+    assert {
+        "tool_id": "get_rke_research_context",
+        "args": {"agent_id": "ackman", "as_of": "2026-08-06",
+                 "layer": "superinvestor", "max_items": 12},
+    } in plan["query_requests"]
     assert not {
         (row["tool_id"], canonical_hash(row["args"]))
         for row in plan["initial_query_requests"]
@@ -358,7 +363,7 @@ def test_l4_plan_translates_active_stage_and_builds_only_proactive_prior() -> No
     )
 
 
-def test_l3_empty_candidate_scope_produces_no_private_queries() -> None:
+def test_l3_empty_candidate_scope_still_allows_authorized_research_context(tmp_path) -> None:
     snapshot = _snapshot(
         agent_id="ackman",
         stage="ackman",
@@ -375,7 +380,32 @@ def test_l3_empty_candidate_scope_produces_no_private_queries() -> None:
 
     assert plan["authorized_scope"]["accepted_candidate_tickers"] == []
     assert plan["initial_query_requests"] == []
-    assert plan["query_requests"] == []
+    assert plan["query_requests"] == [{
+        "tool_id": "get_rke_research_context",
+        "args": {"agent_id": "ackman", "as_of": "2026-08-06",
+                 "layer": "superinvestor", "max_items": 12},
+    }]
+    store = FrozenAdaptiveQueryStore(tmp_path / "queries.sqlite3")
+    prepared = store.prepare(
+        agent_id="ackman", stage="ackman", preservation_stage=plan["preservation_stage"],
+        as_of="2026-08-06", authorized_scope=plan["authorized_scope"],
+        initial_query_requests=plan["initial_query_requests"],
+        query_requests=plan["query_requests"],
+        preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
+        materializer=lambda tool, args: {
+            "payload": "Historical research argument",
+            "source_receipt_hashes": [canonical_hash({"tool": tool, "args": args})],
+        },
+    )
+    assert prepared["public_projection"]["private_payload_count"] == 1
+    session = store.start_session(bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman")
+    result = store.call_result(
+        session_id=session, round_number=1, tool_id="get_rke_research_context",
+        args=plan["query_requests"][0]["args"],
+    )
+    assert result["payload"] == "Historical research argument"
+    with pytest.raises(ValueError, match="scope"):
+        store.start_session(bundle_id=prepared["bundle_id"], agent_id="munger", stage="munger")
 
 
 @pytest.mark.parametrize("changed_field", ["candidate_universe", "role_context"])

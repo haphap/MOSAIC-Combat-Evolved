@@ -3000,7 +3000,7 @@ def _sanitize_claim_footprint_row(
         raise ValueError("retrieval_rank must be a positive integer")
     ranking_policy_id = _clean_str(row.get("ranking_policy_id"))
     if ranking_policy_id and ranking_policy_id not in {
-        "rke_agent_research_context_rank_v1", RANKING_POLICY_ID
+        "rke_agent_research_context_rank_v1", "rke_agent_research_context_rank_v3", RANKING_POLICY_ID
     }:
         raise ValueError("unsupported ranking_policy_id")
     priority_bucket = _clean_str(row.get("priority_bucket"))

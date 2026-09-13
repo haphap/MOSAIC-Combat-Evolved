@@ -670,12 +670,6 @@ class FrozenAdaptiveQueryStore:
                 for row in preservation_overlay["bindings"]
                 if row["agent_id"] == agent_id and row["stage"] == overlay_stage
             }
-            if (
-                agent_id in L3_TOOL_ROSTER
-                and not scope["accepted_candidate_tickers"]
-                and (initial_query_requests or query_requests)
-            ):
-                raise ValueError("L3 empty candidate scope does not permit private queries")
             initial_requests = self._validate_bound_requests(
                 initial_query_requests,
                 bindings=bindings,
@@ -708,8 +702,10 @@ class FrozenAdaptiveQueryStore:
                 agent_id in L3_TOOL_ROSTER
                 and not scope["accepted_candidate_tickers"]
             )
-            if empty_l3_scope and (initial_requests or follow_up_requests):
-                raise ValueError("L3 empty candidate scope does not permit private queries")
+            if empty_l3_scope and (initial_requests or any(
+                tool_id != "get_rke_research_context" for tool_id, _, _ in follow_up_requests
+            )):
+                raise ValueError("L3 empty candidate scope only permits RKE research queries")
             if (
                 not empty_l3_scope
                 and not initial_requests
@@ -725,7 +721,7 @@ class FrozenAdaptiveQueryStore:
             contract_version = BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION
             max_rounds = (
                 3
-                if agent_id in L3_TOOL_ROSTER and not empty_l3_scope
+                if agent_id in L3_TOOL_ROSTER and (not empty_l3_scope or follow_up_requests)
                 else 0
             )
             if max_rounds == 0 and follow_up_requests:

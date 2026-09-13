@@ -464,6 +464,7 @@ def build_knot_gate_d_fixture_evidence(
     training_projections_by_stage: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     from mosaic.scorecard.l3_l4_preservation import (
+        L3_TOOL_ROSTER,
         validate_l3_l4_preservation_overlay,
     )
     from mosaic.scorecard.macro_europe_preservation import (
@@ -575,11 +576,21 @@ def build_knot_gate_d_fixture_evidence(
             frozen_versions=frozen_route_versions,
             active_versions=active_route_versions,
         )
-        if source_binding_id in _CN_CURVE_FULL_PRESERVATION_BINDING_IDS:
+        rke_argument_migration = (
+            source_binding.get("agent_id") in L3_TOOL_ROSTER
+            and source_binding.get("tool_id") == "get_rke_research_context"
+        )
+        if source_binding_id in _CN_CURVE_FULL_PRESERVATION_BINDING_IDS or rke_argument_migration:
+            # Active RKE arguments make historical ticker/sector preferences optional.
+            # Preserve every other contract field and bind both revisions below.
+            migrated_fields = (
+                {"argument_schema_hash", "argument_domain_selector_hash"}
+                if rke_argument_migration
+                else {"source_route_ids", "route_contract_hash"}
+            )
             full_comparison_fields = tuple(
-                field
-                for field in _BINDING_CONTRACT_KEY_FIELDS
-                if field not in {"source_route_ids", "route_contract_hash"}
+                field for field in _BINDING_CONTRACT_KEY_FIELDS
+                if field not in migrated_fields
             )
             matches = [
                 binding

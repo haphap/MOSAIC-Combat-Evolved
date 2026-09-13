@@ -95,10 +95,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> list[str]:
     ):
         failures.append("item_regime_types_invalid")
     if agent_id.startswith("superinvestor.") and items and any(
-        not isinstance(item.get("role_filter_reason_codes"), (list, tuple))
-        or not any(
-            isinstance(reason, str) and reason.startswith("role_filter_")
-            for reason in item.get("role_filter_reason_codes", [])
+        not item.get("research_case") and (
+            not isinstance(item.get("role_filter_reason_codes"), (list, tuple))
+            or not any(
+                isinstance(reason, str) and reason.startswith("role_filter_")
+                for reason in item.get("role_filter_reason_codes", [])
+            )
         )
         for item in items
     ):
