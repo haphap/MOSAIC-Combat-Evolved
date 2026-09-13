@@ -1543,12 +1543,13 @@ function preparedOutcomeOpportunityBindings(
 // ---------------------------------------------------------------------------
 
 /** Schema-driven fake used only to validate the complete strict-contract wiring. */
-class FakeChatModel {
+export class FakeChatModel {
   private tools: Array<{ name: string; schema?: unknown }> = [];
 
   bindTools(tools: unknown): FakeChatModel {
-    this.tools = Array.isArray(tools) ? tools : [];
-    return this;
+    const bound = new FakeChatModel();
+    bound.tools = Array.isArray(tools) ? tools : [];
+    return bound;
   }
   withStructuredOutput(
     schema: unknown,

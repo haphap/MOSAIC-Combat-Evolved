@@ -1192,8 +1192,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     // Top-level mirror preserves the single accepted upstream opportunity.
     expect(final.portfolio_actions).toEqual([
       expect.objectContaining({
-        ticker: "600800.SH",
-        sector: "agriculture",
+        ticker: "600000.SH",
+        sector: "semiconductor",
         action: "BUY",
         target_weight: 0.1,
       }),
@@ -1601,7 +1601,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
     expect(llm.perAgentStructuredCount.cio).toBe(2);
     expect(final.llm_calls).toHaveLength(26);
     expect(final.portfolio_actions).toEqual([
-      expect.objectContaining({ ticker: "600800.SH", action: "BUY", target_weight: 0.1 }),
+      expect.objectContaining({ ticker: "600000.SH", action: "BUY", target_weight: 0.1 }),
     ]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
