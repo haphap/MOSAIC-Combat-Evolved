@@ -99,6 +99,9 @@ def active_argument_schema_for_l3_l4_binding(
             tool_id=tool_id,
         )
     )
+    if tool_id == "get_rke_research_context":
+        schema["required"] = [field for field in schema["required"]
+                              if field not in {"ticker", "sector"}]
     if (
         agent_id == "druckenmiller"
         and active_stage == "druckenmiller"

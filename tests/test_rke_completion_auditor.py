@@ -5,6 +5,9 @@ import shutil
 from dataclasses import asdict
 from pathlib import Path
 
+import pytest
+import yaml
+
 from mosaic.rke import (
     audit_master_plan_completion,
     load_jsonl,
@@ -897,3 +900,50 @@ def test_completion_auditor_serializes_as_current_registry_format():
 
     assert "criteria" in payload
     assert payload["criteria"][0]["criterion_id"] == "C01"
+
+
+@pytest.mark.parametrize("change", ["doc_format", "yaml_format", "policy_cap", "malformed", "missing_limits"])
+def test_confidence_gate_uses_policy_values_instead_of_document_format(tmp_path: Path, change: str):
+    from mosaic.rke.completion_auditor import _confidence_policy_gate
+
+    shutil.copytree(Path("schemas"), tmp_path / "schemas")
+    shutil.copytree(Path("docs"), tmp_path / "docs")
+    runtime = json.loads(Path("registry/runtime_outputs/macro.central_bank.20260605.json").read_text())
+    if change == "doc_format":
+        doc = tmp_path / "docs/confidence_policy.md"
+        doc.write_text(doc.read_text().replace("Research-Only Rule", "Research-only limits")
+                       .replace("final_confidence = min(pre_cap_confidence, confidence_cap)",
+                                "final_confidence = min( pre_cap_confidence, confidence_cap )"))
+    else:
+        path = tmp_path / "schemas/confidence_policy.schema.yaml"
+        policy = yaml.safe_load(path.read_text())
+        if change == "policy_cap":
+            policy["research_only_without_current_data"]["final_confidence_max"] = 0.90
+        if change == "missing_limits":
+            policy.pop("research_only_without_current_data")
+        path.write_text("limits: [" if change == "malformed" else yaml.safe_dump(policy, sort_keys=False))
+    passed, evidence, blocker = _confidence_policy_gate(tmp_path, runtime)
+    assert passed is (change in {"doc_format", "yaml_format"}), (evidence, blocker)
+
+
+def test_confidence_gate_accepts_runtime_policy_rounding(tmp_path: Path):
+    from mosaic.rke.completion_auditor import _confidence_policy_gate
+    from mosaic.rke.p0 import ConfidenceComponents, compute_confidence_v1
+
+    shutil.copytree(Path("schemas"), tmp_path / "schemas")
+    shutil.copytree(Path("docs"), tmp_path / "docs")
+    runtime = json.loads(Path("registry/runtime_outputs/macro.central_bank.20260605.json").read_text())
+    components = {name: 0.612345678 for name in runtime["confidence_components"]}
+    expected = compute_confidence_v1(ConfidenceComponents(**components), confidence_cap=0.65,
+                                     current_data_confirmed=True)
+    runtime["confidence_components"] = components
+    runtime["confidence_policy_trace"].update(
+        pre_cap_confidence=expected.pre_cap_confidence,
+        final_confidence=expected.final_confidence,
+        confidence_cap=0.65,
+    )
+    for recommendation in runtime["recommendations"]:
+        recommendation["confidence"] = expected.final_confidence
+    runtime["progress_event"]["confidence"] = expected.final_confidence
+    passed, evidence, blocker = _confidence_policy_gate(tmp_path, runtime)
+    assert passed, (evidence, blocker)

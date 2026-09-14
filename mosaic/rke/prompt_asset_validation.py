@@ -437,9 +437,12 @@ def build_prompt_asset_validation_report(
     )
 
 
-def write_prompt_asset_validation_report(root: str | Path = ".") -> dict[str, Any]:
+def write_prompt_asset_validation_report(
+    root: str | Path = ".", *, report: PromptAssetValidationReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_prompt_asset_validation_report(root_path)
+    if report is None:
+        report = build_prompt_asset_validation_report(root_path)
     return _write_json(
         root_path / PROMPT_CHECK_REPORT_PATH,
         {

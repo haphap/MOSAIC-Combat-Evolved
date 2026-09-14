@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from mosaic.rke.agent_research_context import MACRO_AGENTS
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.preservation_snapshots import (
     load_preactivation_agent_manifests,
@@ -190,7 +191,9 @@ def build_l1_l2_active_tool_manifest(root: Path) -> dict[str, Any]:
         if agent_id in known_agents:
             raise ValueError("base Agent tool manifest contains duplicate agents")
         known_agents.add(agent_id)
-        restored = sorted(restored_by_agent.get(agent_id, set()))
+        restored = sorted(restored_by_agent.get(agent_id, set()) | (
+            {"get_rke_research_context"} if agent_id in MACRO_AGENTS else set()
+        ))
         overlap = set(row["allowed_tools"]) & set(restored)
         if overlap:
             raise ValueError(
@@ -373,6 +376,13 @@ def build_l1_l2_active_route_manifest(
                 source_route_ids=source["source_route_ids"],
                 migrations=_APPROVED_ACTIVE_OVERLAY_BINDING_MIGRATIONS,
             ),
+        }
+
+    for agent_id in sorted(MACRO_AGENTS):
+        tool_id = "get_rke_research_context"
+        binding_by_key[(agent_id, agent_id, tool_id)] = {
+            "agent_id": agent_id, "stage": agent_id, "tool_id": tool_id,
+            "required_route_ids": ["private.rke_report_intelligence"],
         }
 
     expected_order = [

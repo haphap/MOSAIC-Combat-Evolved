@@ -5,6 +5,367 @@ resume from the latest known state instead of rediscovering or reinstalling the
 same environment. Do not write API keys, licensed report prose, PDF contents, or
 Markdown excerpts here.
 
+## Refresh Scope (Current Code)
+
+`report-intelligence` defaults to `--derived-scope basic`. Extraction writes the
+six extracted fact JSONL files, processing status and the existing report
+fingerprint manifest used to skip duplicate extractions. Basic `--refresh-derived-only`
+normalizes forecast mappings from existing metadata/claims and writes only
+`forecast_claims.jsonl`; it does not require footprint, metric, method or gap files
+and leaves the extraction fingerprint manifest unchanged.
+PIT normalization can use the existing local macro calendar and source mappings.
+
+Basic runs do not rebuild outcome labels, profiles, recipes, proposal templates,
+confidence monitors, prompt mutations or readiness reports.
+They leave existing full-refresh reports, including `extraction_report.json`, at
+their previous vintage. Capture the CLI JSON result in a private log for each
+shard; `refresh_scope` identifies the scope, uncomputed counts are null, and
+`outputs` lists only files written by this invocation. Do not treat an older
+full-refresh report as the result of a basic run.
+
+After merging extraction shards, explicitly request the complete offline research
+refresh before review/readiness checks or publishing a stable snapshot. If legacy
+proposals exist, complete the tool-gap review migration below first:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --refresh-derived-only \
+  --derived-scope full \
+  --scorecard-db-path data/scorecard.db
+```
+
+`merge-report-intelligence-batches --refresh-derived` explicitly requests this
+full scope as well. Full refresh retains the missing-private-input guard and
+existing non-LLM outcome, review, provenance and shadow-only checks. The dated
+operation logs below describe historical full runs; their outcome/profile/gate
+counts are not expected from the new basic default. To reproduce those offline
+outputs, add `--derived-scope full` to the corresponding extraction/refresh command.
+
+## Research Case Migration
+
+The case-based reader uses `analytical_footprints.jsonl` alongside metadata and
+legacy forecast context. `research_case` keeps the question, source-described
+historical regime, ordered reasoning, evidence, assumptions, invalidation
+conditions and conclusion together. Empty fields remain unknown. Case summaries
+are private derived text for approved internal research; they are not public-safe
+artifacts. Raw report paragraphs, source spans, review notes and local paths are
+still excluded from Agent output. Source authorization and PIT checks still apply.
+An explicit `MOSAIC_REGISTRY_DIR` takes precedence over `MOSAIC_REGISTRIES_REPO`
+for both case data and its source archive. Keep the report-intelligence directory
+under the selected repository's `registry/` so source receipts resolve alongside it.
+
+Case retrieval uses rank policy v4. Stock, sector and Agent labels are ranking
+preferences rather than case access requirements. Research questions, historical
+regimes and reasoning participate in lexical relevance ranking; source metadata
+does not substitute for argument content. Unrelated cases can remain in the
+candidate set, so a larger match count is not proof of relevance. Source diversity
+breaks ties within a relevance level. Existing forecast rows retain their target
+and role filters. No extracted tags or private case records need to be rewritten.
+
+Sector and Superinvestor frozen plans include a broad RKE request alongside their
+targeted requests. Active Superinvestor argument schemas allow omitted ticker and
+sector; the historical preservation overlay is unchanged. An empty trading
+candidate set can still authorize an RKE-only query. Frozen source receipts,
+execution identity, date limits, query budgets and trade-universe restrictions
+remain enforced. Existing frozen bundles do not gain this request: prepare new
+bundles with the current code and generated active manifests. Each of the eight
+Macro runtime Agents now receives one deterministic initial RKE query bound to its
+role, snapshot and as-of date, with at most three cases and no stock/sector filter
+or adaptive follow-up. It uses the existing private RKE route and source receipts.
+Cases are shadow research context; accepted current macro facts must still cite
+the role snapshot. Empty authorized research results do not block snapshot analysis.
+Formal runs also need a private Prompt release generated against the current
+runtime contract, including the RKE tool and research-prior boundary. Updating
+public manifests or bundled prompts does not update an existing private Prompt
+release. Run its contract preflight before preparing new runtime bundles.
+
+Follow the existing `pull -> preflight -> hydrate` sequence below into an existing
+clean staging checkout. Preserve unexported work and stop concurrent writers.
+Preview with the same staging root and registry path that apply will use:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-research-cases --dry-run \
+  > .mosaic/tmp/research-case-migration-preview.json
+```
+
+Inspect acceptance, blockers, recovered cases and remaining legacy context.
+Recovery requires one structured pattern with existing ordered steps. Bare names,
+multiple unrelated patterns and ungrounded steps are not joined into an argument.
+No missing historical regime, assumption or conclusion is inferred. Apply only
+when the preview is accepted and its coverage is understood:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-research-cases \
+  > .mosaic/tmp/research-case-migration-result.json
+```
+
+Apply preserves original changed files under the staging root's ignored
+`.mosaic/rke/research_case_migration/` before writing. Keep that archive private.
+Old methods retain their IDs for historical references and are marked
+`research_case_based=false`; new methods bind the complete argument and its
+conditions. Neither migrated fragments nor research arguments are automatically
+converted into trading recipes. Changing case content invalidates old footprint
+review target hashes; do not rewrite or auto-approve manual review imports.
+
+Run the full derived refresh shown above, inspect the resulting quality blockers,
+and test the new case reader on the staging data. Then follow the existing stable
+snapshot export/commit/preflight/push sequence. Existing quality and promotion
+blockers are retained. A successful migration does not imply that missing case
+fields have been recovered or that a method is validated by price outcomes.
+
+For re-extraction, use the cached-Markdown local-LLM workflow below, beginning
+with one report after this extraction-contract change. Reuse the healthy service;
+never start a second GPU service beside another owner's workload. Keep raw inputs
+and case outputs private, and merge only outputs whose source and content checks
+pass. Do not send private cases to an unapproved external model to fill gaps.
+
+### NInfer cached-Markdown extraction
+
+When NInfer is selected, reuse its running local service. Check `/health` and
+`/v1/models`; use the returned model ID and the listening loopback port. Do not
+start another GPU service. NInfer uses the existing chat extraction path with
+`--llm-backend ninfer` and plain text output requested as JSON in the prompt.
+Use the upstream build; custom token masks are no longer required. Qwen3.6-35B-A3B
+uses `enable_thinking: true` because its template has no effort tiers. The existing
+Qwen3.8-27B template uses `reasoning_effort: xhigh`. Reasoning stays separate from
+answer content. Set `presence_penalty: 0` for extraction; the 35B thinking preset's
+default of 1.5 penalizes repeated tokens, including JSON structure. Only the
+answer passes through the existing JSON parser and
+artifact checks. Invalid output is recorded as blocked without automatic retries
+or quote repair. The default backend remains vLLM.
+
+NInfer extraction has no separate output-token budget: it requests the API's
+signed-integer ceiling and the engine clips generation to its remaining context
+capacity. Omitting `max_tokens` would restore the server's smaller default.
+`--max-llm-output-tokens` applies only to vLLM; old NInfer batch arguments do not
+limit the actual request. Reasoning and answer tokens share the available context.
+The request timeout still applies, and reaching context capacity still blocks an
+incomplete extraction. Existing queue children retain their loaded code; a change
+to this policy takes effect when the next batch CLI starts.
+
+The answer must be a complete JSON object. Invalid quotes or a truncated document
+block extraction. A `length` finish reason blocks even if the partial content is
+parseable; a nested object inside a broken answer is never accepted as an
+empty successful extraction. A full report with multiple headings does not inherit
+the final heading as its section context. Re-extract blocked sources into separate
+private batches after correcting the cause, and preserve previous diagnostic runs.
+Review case content before merging a batch; a valid JSON object can
+still contain a sentence cut short by the model.
+Full-text coverage ignores whitespace stripped at chunk boundaries; substantive
+text beyond `--max-chunks` still counts as truncation. Set that cap from the actual
+source length when processing longer reports. Prefer a whole-report chunk when
+its tokenized prompt and output budget fit the running model context: independent
+chunks can repeat or fragment a single argument. NInfer provides the existing
+`/v1/messages/count_tokens` endpoint for a cheap input-size preflight. Use
+`--chunk-chars` explicitly, and `--max-llm-output-tokens` for vLLM; larger context does not
+replace source-content review or justify accepting incomplete sentences.
+Markdown repetition checks exclude
+MinerU's `details`/`summary` wrappers while retaining repeated-content checks.
+Narrative fields should paraphrase rating labels and project names in complete
+statements, preserving their meaning without unnecessary quotation marks. Check
+the actual rating and forecast period against the report body.
+Extraction requests only `analytical_footprints` entries with a topic and complete
+research case. Forecasts stay in each case's conclusion. Omit the unused top-level
+and indicator/pattern/agent arrays from the model's output shape; existing
+normalizers already handle their absence. Requiring those empty arrays caused
+observed object/array closure errors in 35B output. Existing forecast records remain
+readable, but new cases do not create separate forecast outcome-label inputs. Basic
+metadata identifies the source; abstract-derived labels and inferred report/rating
+context are excluded
+from the model request. Original Markdown is preserved in full within its chunk.
+
+Content review must distinguish actuals from forecast columns, preserve the entity
+and period of each observation, and check chart-derived numbers against the source.
+Preserve the author's uncertainty in causal explanations as well as forecasts.
+Research frameworks remain useful cases without a dated regime or recommendation;
+check that their observation-to-judgment method survives extraction. Repeated
+semantic failures stay isolated rather than triggering indefinite prompt retries.
+Local macro sources without explicit market/asset metadata remain unknown rather
+than defaulting to A-share equities. Re-extract existing mislabeled batches before
+merging; changing the code does not rewrite their saved metadata. Macro case
+routing also leaves an unstated target unknown instead of inventing an industry.
+Rating-scale definitions are not earnings forecasts. Extraction no longer requests
+a second analyst rewrite or an LLM approval of its own claim. Neither valid JSON
+nor a nonempty case proves that the source argument has been preserved correctly.
+Refresh preserves a case's extracted indicator mentions and removes rule-generated
+seed mentions; it does not expand company financial-table labels into macro
+evidence. Existing legacy footprints retain their prior refresh behavior.
+For research cases, indicator normalization also preserves extracted metric names,
+roles and grounding flags without keyword-based metadata inference. Unstated
+frequency, source and transformations remain unknown. Previously rewritten values
+cannot be recovered from their labels alone; re-extract from source before replacing
+them. Do not extrapolate company financial observations into an industry regime.
+Full refresh also recomputes case methods' required current data from their
+remaining indicator mentions, preserving method IDs and review fields. Legacy
+method requirements remain historical context. Global metric and tool-gap rows
+lack per-source references; do not delete a shared metric merely because one
+case stopped using it.
+
+Preserve explicit historical target codes; conflicting metadata must
+not rewrite the claim or silently select a different stock for outcome labeling.
+An invalid historical code for the configured price adapter must remain a mapping
+gap or conflict, not become an empty ID that falls back to current metadata.
+Shorter prompts alone do not guarantee valid JSON from a text-only backend.
+Validate contract changes on source content before enabling them; retain failed
+experiments privately and do not repair quotes or salvage nested objects as cases.
+
+Begin with one cached report, writing into a fresh private batch directory:
+
+```bash
+PYTHONPATH=. MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --source-path registry/sources/tushare_research_reports.jsonl \
+  --source-id <source-id> --limit 1 \
+  --cache-dir <existing-cache-directory> \
+  --registry-dir .mosaic/rke/report_intelligence_batches/<batch>/pilot \
+  --skip-download --skip-convert --require-cached-markdown \
+  --llm-backend ninfer \
+  --vllm-base-url http://127.0.0.1:18080/v1 \
+  --vllm-model qwen3.6-35b-a3b --vllm-api-key-env '' \
+  --vllm-timeout-seconds 600
+```
+
+The port and model above must match discovery. The empty key-env argument is
+for a local server without authentication; it prevents unrelated external API
+credentials from being sent. Do not exclude the existing processed registry when
+re-extracting reports from it. Confirm full Markdown coverage, a parsed answer,
+and source-grounded question, ordered reasoning, historical regime and conclusion
+before expanding the batch. Missing fields remain unknown. Keep the published
+registry unchanged until the batch is reviewed and merged by the workflow below.
+
+For a source-specific omission found during content review, add
+`--review-notes-file .mosaic/tmp/<private-notes>.txt` to the same extraction
+command, with exactly one `--source-id` and a fresh private `--registry-dir`.
+The UTF-8 notes should identify the missing argument and its original section;
+they may include the previous case for comparison. Notes are instructions for
+rechecking the original Markdown, not replacement evidence or approval. The model
+returns a complete revised JSON through the existing parser. The previous batch
+and review notes remain private and unchanged. This option does not schedule
+retries or approve imports: inspect the revision against the source, and keep
+unresolved omissions isolated instead of repeating the same correction indefinitely.
+
+Model-generated review notes are candidate findings. Before passing them back for
+correction, compare their cited source and candidate wording: a reviewer can miss
+uncertainty changes, invent a missing phrase, or confuse forecast years with a
+historical regime. Preserve the actual scope of a condition rather than inferring
+it from a field name. Empty cases can be appropriate for news-only reports with
+no supported research argument; distinguish those from extraction failures.
+
+#### Local model update and comparison (2026-09-14)
+
+NInfer at `/home/hap/Project/ninfer` was updated to upstream `d4929686` and built
+without the local JSON-constraint patch. The extraction model is now
+`models/qwen3_6_35b_a3b.ninfer` (`qwen3.6-35b-a3b/groupwise-int`). The existing tmux
+service uses port 18080, MTP3 with `--lm-head-draft`, `--max-context 262144`,
+`--kv-capacity auto`, `--kv-dtype int8`, `--prefill-chunk 1024`, concurrency 1,
+`--no-prefix-reuse --greedy --presence-penalty 0`. Keep the CLI's explicit
+`--llm-backend ninfer --vllm-api-key-env ''`; the default backend remains vLLM.
+
+On the local RTX 5090 D (32 GiB), the new 27B NVFP4 artifact at
+`models/qwen38-dflash2/qwen3_8_27b_nvfp4.ninfer` includes all 66 DFlash2 objects.
+MTP3 served a 260,096-token retrieval input correctly with 262,144-token capacity.
+DFlash2 K7 with the optimized draft head could not start at that capacity with
+the automatic 1 GiB headroom. It started at 229,376, passed the existing 8K/64K/128K
+retrieval inputs, and rejected the 260,096-token input. This is a tested working
+configuration, not a search for its maximum possible context. Prefill time was
+essentially unchanged on the common inputs.
+
+Three identical real-report inputs took 105.0/85.3/235.0 seconds with MTP3 and
+45.8/51.7/196.9 seconds with DFlash2. Decode rates improved by about 27%/17%/6%;
+the larger total-time reduction also reflects shorter outputs. These are single
+runs with different context capacities, not a statistical or identical-output
+benchmark. All six JSON results completed without truncation. The final 35B
+configuration also completed three reports, but source review found omitted
+valuation reasoning and rating-definition noise: format success does not waive
+content review. Comparison records remain private under
+`.mosaic/tmp/ninfer-update-35b/`; none of these trial cases were published.
+
+## Tool Gap Review Migration
+
+When upgrading a published snapshot from the old contract, validate and hydrate
+it with the existing pre-upgrade CLI before switching to the new code. The new
+reader intentionally rejects manifests containing retired proposal paths. Preserve
+unexported staging work; do not hydrate over it. An existing separate code checkout
+can be the staging root. For refresh, use that root with its current schemas and
+repo-relative output paths; verify that recorded PDF/Markdown paths resolve and
+pass the existing scorecard DB explicitly when it lives elsewhere.
+
+Full refresh no longer writes `data_acquisition_proposals.jsonl` or
+`tool_design_proposals.jsonl`. If either legacy file exists, migrate its review
+facts before full refresh or export. Stop concurrent writers to this registry
+while migrating. Run from the code checkout; use the same explicit registry
+path for preview and apply. These commands never call MinerU or the LLM.
+
+```bash
+mkdir -p .mosaic/tmp
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-tool-gap-reviews --dry-run \
+  > .mosaic/tmp/tool-gap-migration-preview.json
+```
+
+Inspect `accepted` and `blockers`. Conflicting review fields, duplicate gap IDs,
+unrecognized orphan proposals or malformed input cause rejection with no writes.
+The known stock market-cap orphan becomes a gap. The preview reports counts and
+blockers without copying review prose. Apply only an accepted, reviewed migration:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-tool-gap-reviews \
+  > .mosaic/tmp/tool-gap-migration-result.json
+```
+
+Apply rechecks the inputs, replaces `tool_gaps.jsonl`, then moves the original
+proposal bytes into `registry/report_intelligence/retired_proposals/`. Review
+status and unique fields are retained; generated template defaults are omitted.
+A completed repeat is a no-op. If an archive move is interrupted, rerun the same
+command: identical migrated fields are accepted, conflicts are not overwritten.
+Do not hand-edit private imports or replace review conflicts with guessed values.
+
+Next run the explicit full refresh above to rebuild current research summaries,
+then use the existing export/publish workflow to create a fresh snapshot.
+
+If the publish destination still contains the legacy proposal files, complete the
+same preview/apply migration there during the exclusive publish window, after
+verifying that it is still the baseline used for staging. The exporter refuses
+unmigrated proposal files at either end. Before exporting and committing, keep the
+destination's archived originals under its existing gitignored `.mosaic/` area,
+outside `registry/`; old readers otherwise treat those JSONL files as unmanifested
+active artifacts. Verify archive bytes and never overwrite an existing different
+archive. The staging archive can remain under `retired_proposals/`. Commit only the
+complete exported snapshot and manifest, then run preflight before pushing. When
+old consumers remain in use, verify their preflight and basic reads as well.
+
+Old manifests referring to proposal paths are rejected. Archived originals stay
+local/private and are excluded from active export and manifest coverage.
+A code-only rollback must not resume old proposal writers against migrated facts;
+keep the archive and canonical gaps until an explicit reverse migration is reviewed.
+
+For a private review view, capture stdout locally instead of persisting another
+proposal registry:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --show-tool-gap-review data > .mosaic/tmp/tool-gap-data-review.json
+```
+
+Use `--show-tool-gap-review tool` for the tool-design view. Both views can contain
+private reviewer text and must not be committed.
+
 ## Current Local Runtime
 
 - Repository: `/home/hap/Project/MOSAIC-RKE`
@@ -341,6 +702,7 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m mosaic.rke.cli report-intelligence \
   --root . \
   --refresh-derived-only \
+  --derived-scope full \
   --scorecard-db-path data/scorecard.db
 ```
 
@@ -1542,8 +1904,9 @@ Recommended operating pattern:
    for larger cached-Markdown batches. Do not use `20` concurrent shards; the
    2026-06-20 test triggered broad `429` rate-limit failures.
 3. Launch all shard commands concurrently, each with a distinct `--registry-dir`.
-4. Summarize `extraction_report.json` from every shard and collect blocker
-   source ids.
+4. Summarize the captured CLI JSON result from every basic shard and collect
+   blocker source ids from its private `processing_status.jsonl`. Do not reuse
+   a previous full `extraction_report.json` for a basic shard.
 5. Retry blockers as one-source shards, still concurrently, with the same
    cached Markdown and `--vllm-timeout-seconds 180`.
 6. Build a clean first-pass shard set that removes blocked source ids from
@@ -1933,7 +2296,7 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 3. Only after Markdown quality is acceptable, start or verify the vLLM service
    and run LLM extraction with the configured `.env` model.
 
-4. Recompute local derived artifacts with `--refresh-derived-only` after private
+4. Recompute local derived artifacts with `--refresh-derived-only --derived-scope full` after private
    extraction outputs exist. Keep the generated `registry/report_intelligence/`
    files local.
 

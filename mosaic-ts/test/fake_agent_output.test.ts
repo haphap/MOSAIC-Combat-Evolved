@@ -6,6 +6,7 @@ import { autonomousExecutionSpec } from "../src/agents/decision/autonomous_execu
 import { cioProposalSpec, cioSpec } from "../src/agents/decision/cio.js";
 import { croSpec } from "../src/agents/decision/cro.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
+import { FakeChatModel } from "../src/cli/commands/daily-cycle.js";
 import { fakeAgentStructuredOutput } from "../src/cli/fake_agent_output.js";
 
 const specByAgent = new Map(
@@ -69,5 +70,55 @@ describe("schema-driven fake LLM outputs", () => {
       ]);
       expect(() => schema.parse(output), `${runtime.agent}:${runtime.stage}`).not.toThrow();
     }
+  });
+});
+
+describe("fake daily-cycle state", () => {
+  const task = [
+    "### agriculture",
+    '* output: {"long_picks":[{"ts_code":"600044.SH"}]}',
+    "### semiconductor",
+    '* output: {"long_picks":[{"ts_code":"600001.SH"}]}',
+    "Runtime-owned evidence catalog (use only these evidence_id values):",
+    '{"evidence":[{"evidence_id":"runtime-current","freshness":"current"}]}',
+  ].join("\n");
+
+  it("selects candidates in the snapshot sector order, independent of display order", () => {
+    const output = cioProposalSpec.schema.parse(
+      fakeAgentStructuredOutput(cioProposalSpec.schema, "cio_cio_proposal", [
+        new HumanMessage(task),
+      ]),
+    );
+    expect(output).toMatchObject({ target_positions: [{ ts_code: "600001.SH" }] });
+  });
+
+  it("preserves candidate and evidence bindings through a JSON repair envelope", () => {
+    const original = fakeAgentStructuredOutput(cioProposalSpec.schema, "cio_cio_proposal", [
+      new HumanMessage(task),
+    ]);
+    const repaired = fakeAgentStructuredOutput(cioProposalSpec.schema, "cio_cio_proposal", [
+      new HumanMessage(
+        JSON.stringify({
+          original_evidence_and_task: task,
+          validation_errors: ["retry"],
+          prior_output: { evidence_id: "invalid-prior-evidence" },
+        }),
+      ),
+    ]);
+    expect(cioProposalSpec.schema.parse(repaired)).toEqual(original);
+    expect(cioProposalSpec.schema.parse(repaired)).toMatchObject({
+      claims: [{ evidence_ids: ["runtime-current"] }],
+    });
+  });
+
+  it("keeps tool bindings local to each agent handle", async () => {
+    const shared = new FakeChatModel();
+    const first = shared.bindTools([{ name: "first", schema: { type: "object", properties: {} } }]);
+    const second = shared.bindTools([
+      { name: "second", schema: { type: "object", properties: {} } },
+    ]);
+    expect((await first.invoke([])).tool_calls?.map((call) => call.name)).toEqual(["first"]);
+    expect((await second.invoke([])).tool_calls?.map((call) => call.name)).toEqual(["second"]);
+    expect((await shared.invoke([])).tool_calls ?? []).toEqual([]);
   });
 });

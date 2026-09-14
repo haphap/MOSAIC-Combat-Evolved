@@ -934,6 +934,11 @@ def _check_runtime_prompt_contract_text(
     rke_tool_approved = "get_rke_research_context" in contract["required_tools"]
     if rke_tool_approved and not _has_rke_current_data_separation(text):
         blockers.append("rke_current_data_separation_missing")
+    if re.search(
+        r"\bget_rke_research_context\s+as\s+(?:a\s+)?(?:production input|current data)\b",
+        lower,
+    ):
+        blockers.append("production_rke_input_forbidden")
     if "```json" in lower or re.search(r"\{\s*[\"'][a-zA-Z0-9_]", text):
         blockers.append("handwritten_json_schema_forbidden")
     for blocker, pattern in _MODEL_PROMPT_FORBIDDEN_PATTERNS.items():

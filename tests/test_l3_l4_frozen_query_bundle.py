@@ -327,11 +327,11 @@ def test_l3_empty_scope_publishes_zero_round_bundle_without_materialization(
         )
 
 
-def test_l3_empty_scope_rejects_any_private_query(tmp_path: Path) -> None:
+def test_l3_empty_scope_rejects_stock_queries(tmp_path: Path) -> None:
     store = _store(tmp_path)
     scope = {**_l3_scope(), "accepted_candidate_tickers": []}
 
-    with pytest.raises(ValueError, match="empty candidate scope"):
+    with pytest.raises(ValueError, match="outside the accepted candidate scope"):
         store.prepare(
             agent_id="ackman",
             stage="ackman",
@@ -340,11 +340,10 @@ def test_l3_empty_scope_rejects_any_private_query(tmp_path: Path) -> None:
             initial_query_requests=[],
             query_requests=[
                 {
-                    "tool_id": "get_industry_policy_digest",
+                    "tool_id": "get_fundamentals",
                     "args": {
                         "as_of": "2026-07-09",
-                        "lookback_days": 30,
-                        "source": "govcn",
+                        "ticker": "600519.SH",
                     },
                 }
             ],

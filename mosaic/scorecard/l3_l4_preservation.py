@@ -14,6 +14,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from mosaic.rke.agent_research_context import MACRO_AGENTS
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.preservation_snapshots import (
     load_preactivation_agent_manifests,
@@ -180,7 +181,8 @@ def argument_schema_for_binding(
     date_schema = _date_schema()
     ticker_schema = _ticker_schema()
     if tool_id == "get_rke_research_context":
-        layer = "superinvestor" if agent_id in L3_TOOL_ROSTER else "decision"
+        layer = ("macro" if agent_id in MACRO_AGENTS else
+                 "superinvestor" if agent_id in L3_TOOL_ROSTER else "decision")
         properties: dict[str, Any] = {
             "agent_id": {"const": agent_id},
             "as_of": date_schema,
@@ -324,7 +326,11 @@ def _domain_contract(
         "candidate_expansion_allowed": False,
         "backup_candidate_source": "accepted_candidate_tickers",
     }
-    if agent_id in L3_TOOL_ROSTER:
+    if agent_id in MACRO_AGENTS:
+        for field in ("candidate_scope_source", "backup_candidate_source"):
+            body.pop(field)
+        body["runtime_authority_hashes"] = ["source_snapshot_hash"]
+    elif agent_id in L3_TOOL_ROSTER:
         body["runtime_authority_hashes"] = [
             "candidate_scope_hash",
             "candidate_universe_hash",

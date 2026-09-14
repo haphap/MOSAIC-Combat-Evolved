@@ -42,6 +42,13 @@ from .claim_text_filters import (
     is_non_research_claim_text,
 )
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
+from .monitoring import (
+    CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD,
+    CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD,
+    confidence_delta_bucket,
+    is_new_regime_observation,
+    pearson_correlation,
+)
 from .manual_review_import import manual_review_forbidden_field_paths
 from .phase_minus1 import load_jsonl_with_errors
 from .required_data import (
@@ -55,7 +62,12 @@ from .private_registries import (
     resolve_report_intelligence_registry_dir,
     write_report_fingerprint_manifest,
 )
+from .research_case import (
+    normalize_research_case, recover_legacy_research_case, research_case_method_identity,
+)
 from .temp_paths import operator_command, rke_tmp_root
+
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
 
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -526,8 +538,6 @@ REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
     "report_intelligence_metric_candidate.schema.json",
     "report_intelligence_method_pattern.schema.json",
     "report_intelligence_tool_gap.schema.json",
-    "report_intelligence_data_acquisition_proposal.schema.json",
-    "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
 )
 FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 100
@@ -1211,6 +1221,7 @@ class ReportIntelligenceConfig:
     skip_convert: bool = False
     skip_llm: bool = False
     refresh_derived_only: bool = False
+    derived_scope: Literal["basic", "full"] = "basic"
     download_timeout_seconds: int = 60
     mineru_command: str = "mineru"
     mineru_backend: str = DEFAULT_MINERU_BACKEND
@@ -1222,6 +1233,8 @@ class ReportIntelligenceConfig:
     vllm_base_url: str = DEFAULT_VLLM_BASE_URL
     vllm_model: str | None = None
     vllm_api_key: str | None = None
+    llm_backend: Literal["vllm", "ninfer"] = "vllm"
+    review_notes: str = ""
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
     scorecard_db_path: str | Path | None = None
@@ -1230,6 +1243,12 @@ class ReportIntelligenceConfig:
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096
     progress_jsonl: bool = False
+
+    def __post_init__(self) -> None:
+        if self.derived_scope not in {"basic", "full"}:
+            raise ValueError("derived_scope must be basic or full")
+        if self.review_notes and len(self.source_ids) != 1:
+            raise ValueError("review notes require exactly one source_id")
 
 
 def _emit_report_intelligence_progress(
@@ -1260,55 +1279,54 @@ class ReportIntelligenceRunResult:
     selected_reports: int
     metadata_rows: int
     forecast_claim_rows: int
-    analytical_footprint_rows: int
-    metric_candidate_rows: int
-    method_pattern_rows: int
-    tool_gap_rows: int
-    forecast_ledger_rows: int
-    outcome_label_rows: int
-    industry_etf_proxy_outcome_label_rows: int
-    industry_etf_proxy_eligible_claim_rows: int
-    industry_etf_proxy_labelable_window_rows: int
-    industry_etf_proxy_pending_window_rows: int
-    stock_price_proxy_outcome_label_rows: int
-    stock_price_proxy_eligible_claim_rows: int
-    stock_price_proxy_labelable_window_rows: int
-    stock_price_proxy_pending_window_rows: int
-    macro_asset_proxy_outcome_label_rows: int
-    macro_asset_proxy_eligible_claim_rows: int
-    macro_asset_proxy_labelable_window_rows: int
-    macro_asset_proxy_pending_window_rows: int
-    macro_series_directional_outcome_label_rows: int
-    macro_series_directional_eligible_claim_rows: int
-    macro_series_directional_labelable_window_rows: int
-    macro_series_directional_pending_window_rows: int
-    macro_curve_directional_outcome_label_rows: int
-    macro_curve_directional_eligible_claim_rows: int
-    macro_curve_directional_labelable_window_rows: int
-    macro_curve_directional_pending_window_rows: int
-    source_performance_profile_rows: int
-    viewpoint_performance_profile_rows: int
-    macro_market_series_catalog_rows: int
-    stock_context_snapshot_rows: int
-    industry_context_snapshot_rows: int
-    macro_regime_snapshot_rows: int
-    macro_agent_research_prior_rows: int
-    method_performance_profile_rows: int
-    tool_coverage_match_rows: int
-    data_acquisition_proposal_rows: int
-    tool_design_proposal_rows: int
-    analysis_recipe_rows: int
-    prompt_mutation_candidate_rows: int
-    weighted_research_context_rows: int
-    runtime_tool_gap_observation_rows: int
-    outcome_labeling_ready_count: int
-    outcome_labeling_blocked_count: int
-    pdf_ready_count: int
-    markdown_ready_count: int
-    llm_processed_reports: int
     blocker_count: int
     blockers: Sequence[str]
     outputs: Mapping[str, str]
+    refresh_scope: Literal["basic", "full"]
+    analytical_footprint_rows: int | None = None
+    metric_candidate_rows: int | None = None
+    method_pattern_rows: int | None = None
+    tool_gap_rows: int | None = None
+    forecast_ledger_rows: int | None = None
+    outcome_label_rows: int | None = None
+    industry_etf_proxy_outcome_label_rows: int | None = None
+    industry_etf_proxy_eligible_claim_rows: int | None = None
+    industry_etf_proxy_labelable_window_rows: int | None = None
+    industry_etf_proxy_pending_window_rows: int | None = None
+    stock_price_proxy_outcome_label_rows: int | None = None
+    stock_price_proxy_eligible_claim_rows: int | None = None
+    stock_price_proxy_labelable_window_rows: int | None = None
+    stock_price_proxy_pending_window_rows: int | None = None
+    macro_asset_proxy_outcome_label_rows: int | None = None
+    macro_asset_proxy_eligible_claim_rows: int | None = None
+    macro_asset_proxy_labelable_window_rows: int | None = None
+    macro_asset_proxy_pending_window_rows: int | None = None
+    macro_series_directional_outcome_label_rows: int | None = None
+    macro_series_directional_eligible_claim_rows: int | None = None
+    macro_series_directional_labelable_window_rows: int | None = None
+    macro_series_directional_pending_window_rows: int | None = None
+    macro_curve_directional_outcome_label_rows: int | None = None
+    macro_curve_directional_eligible_claim_rows: int | None = None
+    macro_curve_directional_labelable_window_rows: int | None = None
+    macro_curve_directional_pending_window_rows: int | None = None
+    source_performance_profile_rows: int | None = None
+    viewpoint_performance_profile_rows: int | None = None
+    macro_market_series_catalog_rows: int | None = None
+    stock_context_snapshot_rows: int | None = None
+    industry_context_snapshot_rows: int | None = None
+    macro_regime_snapshot_rows: int | None = None
+    macro_agent_research_prior_rows: int | None = None
+    method_performance_profile_rows: int | None = None
+    tool_coverage_match_rows: int | None = None
+    analysis_recipe_rows: int | None = None
+    prompt_mutation_candidate_rows: int | None = None
+    weighted_research_context_rows: int | None = None
+    runtime_tool_gap_observation_rows: int | None = None
+    outcome_labeling_ready_count: int | None = None
+    outcome_labeling_blocked_count: int | None = None
+    pdf_ready_count: int | None = None
+    markdown_ready_count: int | None = None
+    llm_processed_reports: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1548,26 +1566,6 @@ def _max_pit_datetime(
     return max(values) if values else None
 
 
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
-
-
 def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -1778,76 +1776,20 @@ def _jsonl_has_mapping_rows(path: Path) -> bool:
 def _blocked_report_intelligence_derived_refresh_result(
     *,
     root_path: Path,
-    registry_dir: Path,
     run_id: str,
     blockers: Sequence[str],
+    refresh_scope: Literal["basic", "full"],
 ) -> ReportIntelligenceRunResult:
-    outputs = {
-        Path(relative).stem: _relative_or_absolute(
-            _report_intelligence_registry_path(
-                root_path=root_path,
-                registry_dir=registry_dir,
-                relative_path=relative,
-            ),
-            root_path,
-        )
-        for relative in sorted(REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS)
-    }
     return ReportIntelligenceRunResult(
         run_id=run_id,
         root=str(root_path),
         selected_reports=0,
         metadata_rows=0,
         forecast_claim_rows=0,
-        analytical_footprint_rows=0,
-        metric_candidate_rows=0,
-        method_pattern_rows=0,
-        tool_gap_rows=0,
-        forecast_ledger_rows=0,
-        outcome_label_rows=0,
-        industry_etf_proxy_outcome_label_rows=0,
-        industry_etf_proxy_eligible_claim_rows=0,
-        industry_etf_proxy_labelable_window_rows=0,
-        industry_etf_proxy_pending_window_rows=0,
-        stock_price_proxy_outcome_label_rows=0,
-        stock_price_proxy_eligible_claim_rows=0,
-        stock_price_proxy_labelable_window_rows=0,
-        stock_price_proxy_pending_window_rows=0,
-        macro_asset_proxy_outcome_label_rows=0,
-        macro_asset_proxy_eligible_claim_rows=0,
-        macro_asset_proxy_labelable_window_rows=0,
-        macro_asset_proxy_pending_window_rows=0,
-        macro_series_directional_outcome_label_rows=0,
-        macro_series_directional_eligible_claim_rows=0,
-        macro_series_directional_labelable_window_rows=0,
-        macro_series_directional_pending_window_rows=0,
-        macro_curve_directional_outcome_label_rows=0,
-        macro_curve_directional_eligible_claim_rows=0,
-        macro_curve_directional_labelable_window_rows=0,
-        macro_curve_directional_pending_window_rows=0,
-        source_performance_profile_rows=0,
-        viewpoint_performance_profile_rows=0,
-        macro_market_series_catalog_rows=0,
-        stock_context_snapshot_rows=0,
-        industry_context_snapshot_rows=0,
-        macro_regime_snapshot_rows=0,
-        macro_agent_research_prior_rows=0,
-        method_performance_profile_rows=0,
-        tool_coverage_match_rows=0,
-        data_acquisition_proposal_rows=0,
-        tool_design_proposal_rows=0,
-        analysis_recipe_rows=0,
-        prompt_mutation_candidate_rows=0,
-        weighted_research_context_rows=0,
-        runtime_tool_gap_observation_rows=0,
-        outcome_labeling_ready_count=0,
-        outcome_labeling_blocked_count=0,
-        pdf_ready_count=0,
-        markdown_ready_count=0,
-        llm_processed_reports=0,
         blocker_count=len(blockers),
         blockers=tuple(blockers),
-        outputs=outputs,
+        outputs={},
+        refresh_scope=refresh_scope,
     )
 
 
@@ -2985,17 +2927,13 @@ def _extract_json_object(text: str) -> Mapping[str, Any]:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(cleaned):
-        if char != "{":
-            continue
-        try:
-            value, _ = decoder.raw_decode(cleaned[index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, Mapping):
-            return value
-    raise ValueError("llm_output_json_object_not_found")
+    try:
+        value = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("llm_output_invalid_json") from exc
+    if not isinstance(value, Mapping):
+        raise ValueError("llm_output_json_object_not_found")
+    return value
 
 
 def _chunk_text(text: str, *, chunk_chars: int, max_chunks: int) -> list[str]:
@@ -3059,6 +2997,7 @@ def _metadata_record(
     blockers: Sequence[str],
 ) -> dict[str, Any]:
     source_id = str(row.get("source_id") or "")
+    local_macro = row.get("source_type") == "local_macro_strategy_report"
     publish_date = str(row.get("publish_date") or "")
     report_id = _report_id(row)
     pdf_path = Path(str(pdf_result.get("path") or "")) if pdf_result.get("path") else None
@@ -3078,8 +3017,8 @@ def _metadata_record(
         "author_ids": _author_ids(row.get("author")),
         "author": str(row.get("author") or ""),
         "report_type": str(row.get("report_type") or ""),
-        "market": "CN_A_SHARE",
-        "asset_class": "equity",
+        "market": str(row.get("market") or ("unknown" if local_macro else "CN_A_SHARE")),
+        "asset_class": str(row.get("asset_class") or ("unknown" if local_macro else "equity")),
         "sector": _report_sector_bucket(row),
         "ts_code": str(row.get("ts_code") or ""),
         "subsectors": [],
@@ -3264,7 +3203,7 @@ def _target_with_metadata_stock_subject(
         return updated, False
     target_type = str(updated.get("target_type") or "").strip().lower()
     subject_ts_code = str(stock_subject.get("target_id") or "")
-    target_ts_code = _normalize_ts_code(updated.get("target_id"))
+    target_ts_code = str(updated.get("target_id") or "").strip().upper()
     changed = False
     if target_type != "stock":
         if not subject_ts_code or target_ts_code != subject_ts_code:
@@ -3310,6 +3249,11 @@ def _bind_stock_subject_to_text(
         not normalized
         or not subject_label
         or str(target.get("target_type") or "").strip().lower() != "stock"
+        or (
+            str(target.get("target_id") or "").strip()
+            and str(target.get("target_id") or "").strip().upper()
+            != str(stock_subject.get("target_id") or "").strip().upper()
+        )
         or _text_mentions_stock_subject(normalized, stock_subject)
     ):
         return normalized, False
@@ -3326,43 +3270,40 @@ def _bind_stock_subject_to_text(
 
 def _system_prompt() -> str:
     return (
-        "You are an RKE report-intelligence extractor. Use only the supplied "
-        "original report Markdown chunk. Separate source-grounded facts from "
-        "inferred hypotheses. Do not rely on any abstract. Do not invent exact "
-        "targets, horizons, windows, formulas, or data sources when the text is "
-        "ambiguous; use unknown or insufficient_mapping instead. Return only a "
-        "single JSON object. Do not include thinking text, commentary, Markdown, "
-        "or code fences. Metadata may identify the report entity, but source text "
-        "must still support each forecast. Extract forecast_claims as complete "
-        "source-grounded report theses synthesized from the supplied Markdown "
-        "context, not as isolated sentence snippets, headings, bullets, or table "
-        "rows. If the supplied chunk is only partial context and does not support "
-        "a full thesis, leave forecast_claims empty and put measurable context in "
-        "analytical_footprints instead. A valid thesis should connect "
-        "background/regime, mechanism/action, company capability when relevant, "
-        "valuation or earnings logic when relevant, and potential market or "
-        "fundamental impact when the source supports that connection. Split "
-        "regime into macro "
-        "environment and industry-cycle regime when the source supports both: "
-        "macro regime includes rate-cut cycles, monetary/liquidity stance, "
-        "credit cycle, fiscal or regulatory policy, FX/dollar cycle, and growth "
-        "or inflation environment; industry-cycle regime includes sector supply "
-        "tightness, demand-driver transition, inventory, capacity, price, "
-        "competition, prosperity, or technology cycles. Keep those regimes "
-        "separate from company-specific capability or action: sector demand "
-        "growth is a regime, while lab rollout, capacity, channel, technology, "
-        "cost control, order backlog, or management execution is company "
-        "capability/action. Also keep mechanism separate from both regime and "
-        "impact: a mechanism is the transmission channel such as demand pull, "
-        "price/cost pass-through, margin expansion, capacity release, market-share "
-        "gain, technology/productivity improvement, policy/liquidity transmission, "
-        "or valuation repricing. For Chinese reports, write claim_text in Chinese. Do not "
-        "put boilerplate risk warnings, disclaimers, rating-definition tables, "
-        "or purely historical descriptive facts into forecast_claims. Do not "
-        "emit general scientific, clinical, public "
-        "health, or policy recommendations as forecast_claims unless the source "
-        "connects them to company/sector demand, revenue, profit, valuation, "
-        "stock return, industry prosperity, or an investment view. /no_think"
+        "You extract reusable research arguments from the supplied original report "
+        "Markdown. The primary output is analytical_footprints.research_case: "
+        "preserve the research question, historical regime, ordered causal reasoning, "
+        "evidence and conclusion together, including source-supported forecasts. "
+        "Use the report language and paraphrase; return one JSON object only. "
+        "Follow the field types exactly. historical_regime is a single string, "
+        "not a list. It describes the source's observed macro/industry state at the "
+        "report's date, not timeless industry descriptions or hypothetical risks. "
+        "Keep company actions and transmission mechanisms in the reasoning chain. "
+        "Do not extrapolate a company's financial observations into an industry "
+        "or macro regime that the source does not state. "
+        "Use only the supplied source. Never complete an argument with plausible "
+        "but unstated assumptions, failure conditions, causal links or later facts. "
+        "Leave missing fields empty. A generic risk warning does not authorize "
+        "inventing specific failure scenarios. Rating definitions are not the "
+        "report's forecast: do not turn them into a benchmark return conclusion. "
+        "Do not infer cheapness or valuation attractiveness from a multiple or rating; "
+        "preserve only the author's stated reasons for the investment view. "
+        "Do not use abstracts as evidence, label correctness or infer outcomes. "
+        "Preserve each observation's entity, period, units and actual/forecast status: "
+        "A means actual, E/F means an analyst estimate, including in past-year columns. "
+        "Preserve uncertainty, future and conditional wording in every field: "
+        "possible explanations remain possible, and planned capacity remains planned. "
+        "Do not calculate new growth rates or turn forecast valuation ratios into "
+        "observed repricing. Exclude approximate chart reconstructions marked ~ "
+        "from evidence; preserve the surrounding source argument instead. "
+        "Use the report body to determine its actual subject, not its directory label. "
+        "Select only evidence pivotal to the argument, not full financial tables. Write complete statements "
+        "in narrative text values, including conclusions: paraphrase rating labels "
+        "and project names without adding quotation marks around them. Preserve "
+        "the actual rating, forecast period and qualifications stated in the source. "
+        "When literal quotation is necessary, use Chinese quotation marks or "
+        "properly escape JSON double quotes. "
+        "The final answer must contain only JSON, without commentary or code fences."
     )
 
 
@@ -3373,205 +3314,48 @@ def _user_prompt(
     chunk_index: int,
     chunk_count: int,
 ) -> str:
-    metadata = {
-        "source_id": row.get("source_id"),
-        "title": row.get("title"),
-        "institution": row.get("institution"),
-        "author": row.get("author"),
-        "publish_date": row.get("publish_date"),
-        "report_type": row.get("report_type"),
-        "query_key": row.get("query_key"),
-        "industry": row.get("industry"),
-        "ts_code": row.get("ts_code"),
-        "chunk_span_id": chunk_span_id,
-        "chunk_index": chunk_index,
-        "chunk_count": chunk_count,
+    metadata = {key: row.get(key) for key in (
+        "source_id", "title", "institution", "author", "publish_date",
+        "report_type", "query_key", "industry", "ts_code",
+    )}
+    metadata.update(chunk_span_id=chunk_span_id, chunk_index=chunk_index, chunk_count=chunk_count)
+    shape = {
+        "analytical_footprints": [{
+            "topic": "",
+            "research_case": {
+                "question": "", "historical_regime": "", "reasoning_chain": [],
+                "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": "",
+            },
+        }],
     }
-    stock_subject = _stock_subject_from_metadata(row)
-    if stock_subject:
-        metadata["stock_subject"] = stock_subject
-    report_context = _ensure_mapping(row.get("report_context"))
-    if report_context:
-        metadata["report_context"] = report_context
-    section_context = _ensure_mapping(row.get("section_context"))
-    if section_context:
-        metadata["section_context"] = section_context
     return (
-        "Extract Report Intelligence Loop objects for this Markdown chunk.\n"
-        "Return JSON with exactly these top-level array keys: "
-        "forecast_claims, analytical_footprints, metric_candidates, "
-        "method_patterns, tool_gaps.\n\n"
-        "forecast_claim fields: claim_text, analyst_claim, "
-        "pre_review_decision, pre_review_reason, claim_provenance "
-        "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
-        "(testable|non_testable|insufficient_mapping), forecast_type, target, "
-        "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
-        "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
-        "metric_proxy_mapping, macro_claim_legs, failure_modes, "
-        "extraction_quality.\n"
-        "Only emit forecast_claims for source-grounded research theses with a "
-        "complete economic chain. The claim_text must be a compact synthesis over "
-        "the full supported report context or a coherent multi-paragraph window: "
-        "macro regime when present, industry regime when present, transmission "
-        "mechanism, company capability/action for stock reports, valuation or "
-        "earnings forecast logic when present, and the expected target impact. It "
-        "does not need to be a verbatim sentence, but every element must be "
-        "supported by the cited source span. Emit at most two forecast_claims for "
-        "this chunk, and emit none when the text only provides local facts, a "
-        "half-sentence, a heading, a pure recommendation list, or a claim that "
-        "cannot be tied back to Mosaic macro/sector/company layers. Prefer fewer, "
-        "higher value claims over enumerating every descriptive sentence; keep "
-        "only the theses that would still be useful for outcome labeling and "
-        "prompt evolution review. "
-        "For Chinese source text, output claim_text in Chinese and keep variable "
-        "or schema ids in English only where the schema requires ids. "
-        "Keep claim_text as the source-grounded extracted claim. Put the "
-        "financial-practitioner rewrite in analyst_claim: it may make the "
-        "macro regime, industry regime, company/sector mechanism, earnings or "
-        "valuation logic, target, direction, and horizon clearer, but it must "
-        "not add facts or causal links unsupported by the chunk. Set "
-        "pre_review_decision to include, exclude, or rewrite_needed from a "
-        "financial-practitioner perspective, and explain briefly in "
-        "pre_review_reason. "
-        "Use Report metadata.report_context when present: subject_context "
-        "identifies the covered entity/sector/asset universe, section_context "
-        "identifies the local section title and section horizon, benchmark_context "
-        "identifies report-level benchmark definitions, and rating_context "
-        "identifies rating-scale terms and rating horizons. frequency_context "
-        "identifies report cadence such as weekly, monthly, quarterly, or annual "
-        "when the title or report type supports it. These contexts can disambiguate "
-        "generic words such as 公司, 行业, 板块, 市场, or 相对收益, but they must not "
-        "add facts unsupported by the report. "
-        "Prefer claims of the form: under <macro regime if present> and "
-        "<industry-cycle regime if present>, <mechanism/action> "
-        "and, for stock reports, <specific company capability/action plus "
-        "earnings or valuation logic> are expected to affect "
-        "<target/fundamental/return> through <channel>. Do not merge "
-        "macro regime, industry-cycle regime, and company capability into one "
-        "undifferentiated cause: 'the Fed entered a rate-cut cycle' or 'China "
-        "stepped up counter-cyclical monetary policy' is macro regime; 'global "
-        "copper supply is structurally tight while demand drivers are shifting' "
-        "is industry-cycle regime; 'company labs reaching designed utilization' "
-        "is company capability/action. "
-        "Make the economic mechanism explicit when supported: identify whether "
-        "the claim works through demand pull, price/cost pass-through, capacity "
-        "release, margin expansion, market-share gain, technology/productivity, "
-        "policy/liquidity transmission, or valuation repricing. "
-        "A forecast_claim must have a finance-relevant target impact: demand, "
-        "orders, revenue, margin, profit, valuation, stock return, sector return, "
-        "industry prosperity, credit growth, liquidity, explicit investment "
-        "view, or a directional macro market variable such as rates, yields, "
-        "FX, volatility, commodities, term spreads, or yield-curve slope. "
-        "General clinical, public-health, scientific, regulatory, or policy "
-        "recommendations without such market/fundamental linkage belong in "
-        "analytical_footprints, not forecast_claims. "
-        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...', "
-        "disclaimers such as '不构成投资建议' or '过往业绩并不预示未来表现', "
-        "or rating-definition tables explaining 强烈推荐/推荐/中性/看淡/卖出 "
-        "rather than expressing this report's view. Do not emit forecast_claims "
-        "for pure historical/statistical descriptions such as price-change tables, "
-        "ROE rankings, current margins, asset-liability ratios, and market-performance "
-        "summaries unless the surrounding paragraph links those facts to a forward "
-        "impact or mechanism. Such descriptive facts may appear in analytical_footprints "
-        "as context, not forecast_claims.\n"
-        "For stock reports, if Report metadata.ts_code is present and the chunk "
-        "contains a forecast, rating, or investment view for that same company, "
-        "set target.target_type='stock' and target.target_id to metadata.ts_code. "
-        "If Report metadata.stock_subject is present, use it only to disambiguate "
-        "the covered stock entity; the source Markdown must still support the "
-        "forecast thesis. Resolve generic references such as 公司, 本公司, 该公司, "
-        "or 标的公司 in claim_text and analyst_claim to "
-        "metadata.stock_subject.subject_label. Do not output a stock forecast_claim "
-        "whose subject is only 公司 or 本公司 when metadata.stock_subject provides "
-        "the actual stock name or ts_code. "
-        "For industry reports, if Report metadata.industry or metadata.query_key "
-        "names the covered sector and the chunk contains an investment view, "
-        "outlook, prosperity-cycle view, rating change, or relative-performance "
-        "call for that sector, set target.target_type='sector' and target.target_id "
-        "to the metadata sector string. For industry directions, use positive only "
-        "when the source text is bullish, constructive, recommends overweight, "
-        "expects upside, expects prosperity improvement, or expects the sector to "
-        "outperform; use negative only when the source text is bearish, defensive, "
-        "recommends underweight, expects downside, expects prosperity deterioration, "
-        "or expects underperformance. Use neutral, ambiguous, or unknown when the "
-        "chunk is balanced, only descriptive, or lacks a clear directional view. "
-        "If the text names a benchmark, include benchmark_id; otherwise use "
-        "benchmark_type='broad_market' only when the text frames a relative call "
-        "against the market. Never invent a horizon; keep horizon unknown when "
-        "the source text and report context have no explicit or clearly implied "
-        "time window. Check report temporal context before leaving horizon empty: "
-        "title, abstract/core-view paragraphs, section headings, rating definitions, "
-        "and report type may provide the applicable horizon for a claim. When "
-        "the text explicitly says windows such as 2026-2028年, 未来三年, 年内, "
-        "未来6个月, 短期, 中期, 中长期, or 长期, encode that in horizon and set "
-        "horizon.source to claim_text, section_context, report_temporal_context, "
-        "report_level_rating_definition, or report_type_default as appropriate. "
-        "Do not copy evaluation horizons such as 90/180/360 days into claim "
-        "horizon unless the report itself states them. Fill metric_proxy_mapping with source-supported "
-        "finance proxies such as stock_forward_return, industry_etf_forward_return, "
-        "relative_alpha, revenue_growth, earnings_growth, margin_profitability, "
-        "valuation_multiple, demand_growth, industry_prosperity, liquidity_credit_condition, "
-        "or commodity_price_cycle. For macro strategy, strategy, fixed-income, "
-        "asset-allocation, or overseas-market reports, extract directional views "
-        "for marketable asset classes when the source supports them. Use "
-        "target.target_type='macro_asset', 'market_index', 'equity_index', "
-        "'bond', or 'commodity' and prefer these canonical target_ids when "
-        "supported: CN_A_SHARE_BROAD, CN_A_SHARE_LARGE_CAP, "
-        "CN_A_SHARE_MID_SMALL, CN_A_SHARE_GROWTH, HK_EQUITY, "
-        "US_EQUITY_NASDAQ, US_EQUITY_SP500, CN_BOND, CN_CREDIT_BOND, "
-        "CN_POLICY_BANK_BOND, or GOLD. For those mapped views, use proxies such "
-        "as macro_asset_forward_return, equity_index_forward_return, "
-        "bond_etf_forward_return, gold_etf_forward_return, or relative_alpha. "
-        "Direct macro market forecasts are valid forecast_claims when the source "
-        "states a clear target, direction, and horizon for rates, yields, FX, "
-        "volatility, commodities, term spreads, or yield-curve slope; they do "
-        "not need to be rewritten into a sector or ETF return view. For direct "
-        "series claims, use target.target_type='macro_series', forecast_type="
-        "'macro_series_directional', and canonical target_id such as "
-        "US_10Y_YIELD, CN_10Y_YIELD, USDCNY, VIX, GOLD_SPOT, COPPER, or "
-        "CRUDE_OIL when supported. Use metric_proxy_mapping values such as "
-        "bond_yield_level, fx_rate, volatility_index, or commodity_price. For "
-        "curve or spread claims, use target.target_type='macro_curve', "
-        "forecast_type='macro_curve_directional', canonical target_id such as "
-        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD, and metric_proxy_mapping "
-        "yield_curve_slope or cross_market_yield_spread. For CPI, GDP, policy "
-        "events, or other macro variables without a configured direct series, "
-        "still extract the analytical footprint and tool gap, but do not invent "
-        "an ETF proxy or canonical target_id. Leave the list empty only when the claim has "
-        "no finance/fundamental/return proxy in the source text. For macro "
-        "strategy claims that contain multiple evaluable assets or variables, "
-        "keep one complete parent claim_text with the full regime/mechanism "
-        "logic and add at most six primary macro_claim_legs. Each "
-        "macro_claim_leg should contain leg_index, target_type, target_id, "
-        "target_label, metric_family, metric_proxy, direction, quote_convention, "
-        "orientation_rule, claim_horizon, evaluation_windows, "
-        "source_grounding_status, and target_agent_candidates. Use target_type "
-        "macro_asset for ETF/asset proxy views, macro_series for direct "
-        "rate/yield/FX/volatility/commodity series, and macro_curve for spreads "
-        "or yield-curve slope. For explicit yield-curve, term-spread, steepening, "
-        "flattening, inversion, long-end versus short-end, or US-China rate-spread "
-        "views, prefer target_type='macro_curve' with canonical target_id such as "
-        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD; use positive for steepening or "
-        "spread widening and negative for flattening or spread narrowing when the "
-        "source states that direction. Do not create a leg when the report gives no "
-        "clear target and direction.\n"
-        "analytical_footprints fields: topic, indicator_mentions, "
-        "analysis_patterns, target_agent_candidates. Mark each mention/step "
-        "with source_grounded true/false when possible. For analytical_footprints, "
-        "do not leave indicator_mentions empty when the footprint depends on "
-        "measurable evidence, validation data, or market/fundamental proxies; "
-        "name the indicator, canonical metric candidate, data source, frequency, "
-        "transformation, role in the argument, and whether it is directly "
-        "source-grounded. Use unknown only for fields that are truly absent.\n"
-        "metric_candidates fields: canonical_name, aliases, metric_family, "
-        "raw_data_requirements, default_transformation, target_agents.\n"
-        "method_patterns fields: name, steps, required_current_data, "
-        "optional_confirmation_data, failure_modes, target_agents.\n"
-        "tool_gaps fields: gap_type, metric_name, method_name, target_agents, "
-        "priority_reasons, blocking_issues.\n\n"
-        "Use this chunk span id for source-grounded records: "
-        f"{chunk_span_id}\n\n"
-        "Report metadata:\n"
+        "Read the original Markdown and preserve each coherent research argument as "
+        "one research_case. Do not split an argument by sentence, indicator, stock code "
+        "or heading; do not join unrelated arguments. A source-described research "
+        "framework is also an argument: preserve how its observations inform a "
+        "judgment, even without a dated regime, numerical evidence or stock recommendation. "
+        "Do not omit the method while keeping only the market commentary. "
+        "If there is no supported argument, "
+        "return analytical_footprints as an empty array.\n\n"
+        "question states the research problem. historical_regime states only the "
+        "source's observed macro or industry conditions with their original time scope; "
+        "use an empty string when none are stated. A generic warning that policy changes "
+        "may affect an industry is not an observed regime and must not fill this field. "
+        "reasoning_chain preserves only the source's ordered causal steps, without "
+        "adding plausible implications. evidence contains brief "
+        "supporting observations, each with its original entity, period, units and "
+        "actual/estimate status. assumptions and invalidation_conditions contain only "
+        "source-stated conditions, including the report's specific risks that could "
+        "undermine its argument; otherwise leave them empty. conclusion preserves "
+        "the complete answer, source forecasts with their years, and the actual rating "
+        "when given. Keep forecast valuation ratios distinct from observed repricing. "
+        "A quarter's conditions must not become a full-year regime.\n\n"
+        "Keep forecasts within the case conclusion. Return only the fields in the output shape. "
+        "Use the report language and complete statements. Unknown text fields are "
+        "empty strings; unknown list fields are empty arrays.\n\n"
+        "Output shape (all case list elements are strings):\n"
+        f"{json.dumps(shape, ensure_ascii=False)}\n\n"
+        "Report metadata is for source identification only, not evidence:\n"
         f"{json.dumps(metadata, ensure_ascii=False, sort_keys=True)}\n\n"
         "Original Markdown chunk:\n"
         f"{markdown_chunk}"
@@ -3590,6 +3374,8 @@ def call_vllm_extractor(
     api_key: str | None = None,
     timeout_seconds: int = 120,
     max_output_tokens: int = 4096,
+    backend: Literal["vllm", "ninfer"] = "vllm",
+    review_notes: str = "",
 ) -> Mapping[str, Any]:
     resolved_model = resolve_vllm_model(
         base_url,
@@ -3615,8 +3401,27 @@ def call_vllm_extractor(
         "temperature": 0,
         "max_tokens": max_output_tokens,
         "response_format": {"type": "json_object"},
-        "chat_template_kwargs": {"enable_thinking": False},
     }
+    if review_notes:
+        payload["messages"][1]["content"] += (
+            "\n\nReview notes for this source (not source evidence):\n"
+            f"{review_notes}\n\n"
+            "Re-read the original Markdown to address these findings. Return the "
+            "complete corrected JSON, not a patch or only the missing fields. "
+            "Preserve supported content; do not add anything absent from the source. "
+            "These notes do not approve the result."
+        )
+    if backend == "ninfer":
+        payload.pop("response_format")
+        payload["presence_penalty"] = 0
+        if resolved_model == "qwen3.6-35b-a3b":
+            payload["enable_thinking"] = True
+        else:
+            payload["reasoning_effort"] = "xhigh"
+        # NInfer clips this API integer ceiling to the remaining context capacity.
+        payload["max_tokens"] = 2**31 - 1
+    else:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -3643,6 +3448,12 @@ def call_vllm_extractor(
             "model": resolved_model,
         }
     first = choices[0] if isinstance(choices[0], Mapping) else {}
+    if first.get("finish_reason") == "length":
+        return {
+            "status": "blocked",
+            "blocker": "vllm_output_length_limit",
+            "model": resolved_model,
+        }
     message = first.get("message") if isinstance(first, Mapping) else {}
     content = message.get("content") if isinstance(message, Mapping) else ""
     try:
@@ -5824,7 +5635,9 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
     return normalized
 
 
-def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
+def _normalize_indicator_mentions(
+    value: Any, *, infer_metadata: bool = True,
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(value):
         if isinstance(item, Mapping):
@@ -5845,26 +5658,24 @@ def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
             mention.setdefault("transformation", "unknown")
             mention.setdefault("role_in_argument", "unknown")
             mention.setdefault("source_grounded", False)
-            mention = _apply_indicator_metadata_inference(mention)
+            if infer_metadata:
+                mention = _apply_indicator_metadata_inference(mention)
             records.append(mention)
             continue
         indicator_text = str(item or "").strip()
         if not indicator_text:
             continue
-        records.append(
-            _apply_indicator_metadata_inference(
-                {
-                    "indicator_text": indicator_text,
-                    "canonical_metric_candidate": "unknown",
-                    "data_source_mentioned": "unknown",
-                    "frequency": "unknown",
-                    "lookback_window": {},
-                    "transformation": "unknown",
-                    "role_in_argument": "unknown",
-                    "source_grounded": False,
-                }
-            )
-        )
+        mention = {
+            "indicator_text": indicator_text,
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "lookback_window": {},
+            "transformation": "unknown",
+            "role_in_argument": "unknown",
+            "source_grounded": False,
+        }
+        records.append(_apply_indicator_metadata_inference(mention) if infer_metadata else mention)
     return _prioritize_indicator_mentions_for_review(records)
 
 
@@ -7112,7 +6923,7 @@ def _section_context_from_chunk(markdown_chunk: str, publish_date: str) -> dict[
             title = numbered_match.group("title")
         if title:
             headings.append(title.strip())
-    if not headings:
+    if len(set(headings)) != 1:
         return {}
     section_title = headings[-1]
     horizon = _context_horizon_from_text(
@@ -9150,7 +8961,8 @@ def _refresh_analytical_footprint_indicator_governance(
     for row in footprint_rows:
         refreshed = dict(row)
         original_indicator_mentions = _normalize_indicator_mentions(
-            refreshed.get("indicator_mentions")
+            refreshed.get("indicator_mentions"),
+            infer_metadata=not bool(refreshed.get("research_case")),
         )
         base_indicator_mentions = [
             mention
@@ -9158,6 +8970,12 @@ def _refresh_analytical_footprint_indicator_governance(
             if str(mention.get("inference_source") or "")
             not in INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES
         ]
+        if refreshed.get("research_case"):
+            refreshed["indicator_mentions"] = _prioritize_indicator_mentions_for_review(
+                base_indicator_mentions
+            )
+            refreshed_rows.append(refreshed)
+            continue
         indicator_mentions = list(original_indicator_mentions)
         text_grounded_mentions: list[dict[str, Any]] = []
         if metadata_by_source and root_path is not None:
@@ -9211,7 +9029,7 @@ def _refresh_analytical_footprint_indicator_governance(
             and mention.get("source_grounded") is True
             for mention in indicator_mentions
         )
-        if not has_complete_mapping:
+        if not has_complete_mapping and not refreshed.get("research_case"):
             context_mentions = _context_seed_indicator_mentions(
                 _footprint_indicator_context(refreshed)
             )
@@ -9235,6 +9053,7 @@ def _refresh_analytical_footprint_indicator_governance(
     return refreshed_rows
 
 
+
 def _normalize_footprints(
     payload: Mapping[str, Any],
     row: Mapping[str, Any],
@@ -9248,22 +9067,25 @@ def _normalize_footprints(
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("analytical_footprints")):
         footprint = _ensure_mapping(item)
+        if not footprint:
+            continue
         topic = _record_text(footprint, "topic", "name") or "unknown"
+        case = normalize_research_case(footprint.get("research_case"))
         target_agents, target_entities = _split_agent_and_entity_candidates(
             footprint.get("target_agent_candidates")
         )
         analysis_patterns = _ensure_list(footprint.get("analysis_patterns"))
         indicator_mentions = _normalize_indicator_mentions(
-            footprint.get("indicator_mentions")
+            footprint.get("indicator_mentions"), infer_metadata=case is None,
         )
-        if not indicator_mentions:
+        if not indicator_mentions and case is None:
             indicator_mentions = _text_grounded_indicator_mentions(
                 markdown_chunk,
                 footprint_context=_footprint_indicator_context(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
                 ),
             )
-        if not indicator_mentions:
+        if not indicator_mentions and case is None:
             indicator_mentions = _context_seed_indicator_mentions(
                 _footprint_indicator_context(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
@@ -9280,13 +9102,17 @@ def _normalize_footprints(
                     "chunk_span_id": chunk_span_id,
                     "topic": topic,
                     "indicator_mentions": footprint.get("indicator_mentions"),
+                    **({"research_case": case} if case is not None else {}),
                 },
             ),
             "report_id": report_id,
             "source_id": str(row.get("source_id") or ""),
             "source_span_ids": _source_span_ids(footprint, chunk_span_id),
             "extraction_type": str(footprint.get("extraction_type") or "mixed"),
-            "market": "CN_A_SHARE",
+            "market": str(row.get("market") or (
+                "unknown" if row.get("source_type") == "local_macro_strategy_report"
+                else "CN_A_SHARE"
+            )),
             "sector": _report_sector_bucket(row),
             "topic": topic,
             "indicator_mentions": indicator_mentions,
@@ -9301,6 +9127,9 @@ def _normalize_footprints(
                 "input_mode": "original_markdown",
             },
         }
+        if case is not None:
+            record["research_case"] = case
+            record["research_case_origin"] = "source_extraction"
         records.append(record)
     return records
 
@@ -9323,6 +9152,8 @@ def _footprint_review_target_hash(row: Mapping[str, Any]) -> str:
         "indicator_mentions": row.get("indicator_mentions"),
         "analysis_patterns": row.get("analysis_patterns"),
     }
+    if row.get("research_case") is not None:
+        payload["research_case"] = row["research_case"]
     encoded = json.dumps(
         _jsonable(payload),
         ensure_ascii=False,
@@ -9491,6 +9322,8 @@ def _footprint_review_template_row(
         "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         "review_context_ref": "registry/report_intelligence/analytical_footprints.jsonl",
         "manual_review_required": True,
+        **({"research_case_review_preview": row["research_case"]}
+           if row.get("research_case") is not None else {}),
         "topic_preview": _bounded_metadata_text(row.get("topic")),
         "extraction_type": str(row.get("extraction_type") or "unknown"),
         "sector": str(row.get("sector") or "unknown"),
@@ -13270,81 +13103,119 @@ def _normalize_metric_candidates(
     return records
 
 
+def migrate_research_cases(*, root: str | Path, registry_dir: str | Path | None = None,
+                           dry_run: bool = True) -> dict[str, Any]:
+    """Recover existing argument steps and retain old methods as historical context."""
+    root_path = Path(root).expanduser().resolve()
+    directory = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    blockers: list[str] = []
+    footprints = _read_registry_jsonl(directory / "analytical_footprints.jsonl",
+                                     label="analytical_footprints", blockers=blockers)
+    methods = _read_registry_jsonl(directory / "method_patterns.jsonl",
+                                  label="method_patterns", blockers=blockers)
+    if not footprints:
+        blockers.append("analytical_footprints_required")
+    updated = []
+    recovered = 0
+    existing_cases = 0
+    seen = set()
+    for footprint in footprints:
+        ident = footprint.get("footprint_id")
+        if not ident or ident in seen:
+            blockers.append("missing_or_duplicate_footprint_id")
+        seen.add(ident)
+        row = dict(footprint)
+        if "research_case" in row:
+            normalized_case = normalize_research_case(row["research_case"])
+            if normalized_case is None or normalized_case != row["research_case"]:
+                blockers.append("invalid_existing_research_case")
+            else:
+                existing_cases += 1
+        else:
+            case = recover_legacy_research_case(row)
+            if case is not None:
+                row["research_case"] = case
+                row["research_case_origin"] = "legacy_structured_pattern"
+                recovered += 1
+        updated.append(row)
+    legacy_methods = [dict(method, research_case_based=False) for method in methods
+                      if method.get("research_case_based") is not True]
+    case_methods = _normalize_method_patterns(updated, run_id="research_case_migration",
+                                               model="existing_structured_arguments")
+    combined_methods = legacy_methods + case_methods
+    result = {
+        "accepted": not blockers, "applied": False, "blockers": sorted(set(blockers)),
+        "existing_case_count": existing_cases, "recovered_case_count": recovered,
+        "legacy_context_only_count": len(updated) - existing_cases - recovered,
+        "active_method_count": len(case_methods), "legacy_method_count": len(legacy_methods),
+        "current_regime_inferred": False,
+    }
+    if dry_run or blockers:
+        return result
+    changes = {}
+    if updated != footprints:
+        changes["analytical_footprints.jsonl"] = updated
+    if combined_methods != methods:
+        changes["method_patterns.jsonl"] = combined_methods
+    if changes:
+        archive = root_path / ".mosaic/rke/research_case_migration" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        archive.mkdir(parents=True, exist_ok=False)
+        for filename in changes:
+            source = directory / filename
+            if source.exists():
+                shutil.copy2(source, archive / filename)
+        for filename, rows in changes.items():
+            _write_jsonl(directory / filename, rows)
+        result["archive_path"] = str(archive)
+    result["applied"] = True
+    return result
+
+
 def _normalize_method_patterns(
-    payload: Mapping[str, Any],
     footprints: Sequence[Mapping[str, Any]],
     *,
     run_id: str,
     model: str,
 ) -> list[dict[str, Any]]:
-    raw_methods = [_ensure_mapping(item) for item in _ensure_list(payload.get("method_patterns"))]
+    # A complete argument is the method unit; short pattern names remain case context.
+    methods: dict[str, dict[str, Any]] = {}
     for footprint in footprints:
-        for pattern in _ensure_list(footprint.get("analysis_patterns")):
-            pattern_map = _ensure_mapping(pattern)
-            name = (
-                str(pattern).strip()
-                if isinstance(pattern, str)
-                else _record_text(pattern_map, "pattern_candidate", "name", "pattern")
-            )
-            if name:
-                raw_methods.append(
-                    {
-                        "name": name,
-                        "source_footprint_ids": [footprint.get("footprint_id")],
-                        "steps": pattern_map.get("steps") or [name],
-                        "required_current_data": pattern_map.get(
-                            "required_current_data"
-                        )
-                        or [],
-                        "optional_confirmation_data": pattern_map.get(
-                            "optional_confirmation_data"
-                        )
-                        or [],
-                        "failure_modes": pattern_map.get("failure_modes") or [],
-                        "target_agents": footprint.get("target_agent_candidates")
-                        or [],
-                    }
-                )
-    deduped: dict[str, dict[str, Any]] = {}
-    for item in raw_methods:
-        name = _record_text(item, "name", "pattern_candidate")
-        if not name:
+        case = normalize_research_case(footprint.get("research_case"))
+        if case is None:
             continue
-        key = _canonical_metric_name(name)
-        existing = deduped.setdefault(
-            key,
-            {
-                "method_pattern_id": _stable_id("METHOD", {"canonical_name": key}),
-                "canonical_name": key,
-                "name": name,
-                "description": str(item.get("description") or ""),
-                "source_footprint_ids": [],
-                "steps": [],
-                "required_current_data": [],
-                "optional_confirmation_data": [],
-                "failure_modes": [],
-                "target_agents": [],
-                "validation_status": "candidate",
-                "allowed_runtime_mode": "shadow_only",
-                "extractor": {"run_id": run_id, "model": model},
-            },
+        identity = research_case_method_identity(case)
+        method_id = _stable_id("METHOD", identity)
+        existing = methods.setdefault(method_id, {
+            "method_pattern_id": method_id,
+            "canonical_name": _canonical_metric_name(case["question"]),
+            "name": case["question"],
+            "description": case["conclusion"],
+            "historical_regime": case["historical_regime"],
+            "assumptions": case["assumptions"],
+            "research_case_based": True,
+            "source_footprint_ids": [],
+            "steps": case["reasoning_chain"],
+            "required_current_data": [],
+            "optional_confirmation_data": [],
+            "failure_modes": case["invalidation_conditions"],
+            "target_agents": [],
+            "validation_status": "candidate",
+            "allowed_runtime_mode": "shadow_only",
+            "extractor": {"run_id": run_id, "model": model},
+        })
+        existing["source_footprint_ids"] = _merge_unique_values(
+            existing["source_footprint_ids"], [footprint["footprint_id"]],
         )
-        for field in (
-            "source_footprint_ids",
-            "steps",
-            "required_current_data",
-            "optional_confirmation_data",
-            "failure_modes",
-            "target_agents",
-        ):
-            additions = _ensure_list(item.get(field))
-            if field == "target_agents":
-                additions, _ = _split_agent_and_entity_candidates(additions)
-            existing[field] = _merge_unique_values(
-                existing[field],
-                additions,
-            )
-    return list(deduped.values())
+        agents, _ = _split_agent_and_entity_candidates(footprint.get("target_agent_candidates"))
+        existing["target_agents"] = _merge_unique_values(existing["target_agents"], agents)
+        metrics = [
+            _record_text(_ensure_mapping(mention), "canonical_metric_candidate", "indicator_text")
+            for mention in _ensure_list(footprint.get("indicator_mentions"))
+        ]
+        existing["required_current_data"] = _merge_unique_values(
+            existing["required_current_data"], [metric for metric in metrics if metric],
+        )
+    return sorted(methods.values(), key=lambda method: method["method_pattern_id"])
 
 
 def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
@@ -14670,13 +14541,13 @@ def _stock_target_resolution(
             "metadata_ts_code": metadata_ts_code,
             "llm_target_id": raw_target,
         }
-    if metadata_ts_code and llm_ts_code and metadata_ts_code != llm_ts_code:
+    if metadata_ts_code and raw_target and metadata_ts_code != raw_target.upper():
         return {
             "ts_code": "",
             "target_resolution_source": "",
             "gap": "stock_target_conflict",
             "metadata_ts_code": metadata_ts_code,
-            "llm_target_id": llm_ts_code,
+            "llm_target_id": raw_target,
         }
     if metadata_ts_code and llm_ts_code:
         return {
@@ -15172,6 +15043,8 @@ def _markdown_image_only(text: str) -> bool:
 def _markdown_repeated_line_noise(text: str) -> bool:
     keys: list[str] = []
     for line in _markdown_non_empty_lines(text):
+        if re.fullmatch(r"</?details>|<summary>[^<]*</summary>", line.strip()):
+            continue
         key = _markdown_line_key(line)
         if len(key) >= 4:
             keys.append(key)
@@ -21383,7 +21256,25 @@ def _tool_name_for_metric(metric_name: str) -> str:
     return f"get_{canonical}_indicators"
 
 
+def _invalid_tool_gap_review_fields(gap: Mapping[str, Any]) -> list[str]:
+    # These are the existing proposal review constraints, now owned by the gap.
+    choices = {
+        "license_status": ("approved", "pending_review", "restricted", "prohibited"),
+        "pit_feasibility_status": (
+            "pit_feasible_pending_vendor_review", "requires_pit_backfill_review", "pit_blocked",
+        ),
+        "shadow_implementation_status": (
+            "shadow_build_requested", "blocked_pending_review", "shadow_implemented",
+            "shadow_validated", "implemented", "validated",
+        ),
+        "engineering_effort": ("low", "medium", "high"),
+    }
+    return [field for field, allowed in choices.items() if field in gap and gap[field] not in allowed]
+
+
 def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
+    if gap.get("license_status"):
+        return str(gap["license_status"])
     text = " ".join(
         [
             str(gap.get("gap_type") or ""),
@@ -21399,6 +21290,8 @@ def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
 
 
 def _tool_gap_pit_feasibility_status(gap: Mapping[str, Any]) -> str:
+    if gap.get("pit_feasibility_status"):
+        return str(gap["pit_feasibility_status"])
     text = " ".join(
         [
             str(gap.get("gap_type") or ""),
@@ -21414,6 +21307,8 @@ def _tool_gap_pit_feasibility_status(gap: Mapping[str, Any]) -> str:
 
 
 def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
+    if gap.get("engineering_effort"):
+        return str(gap["engineering_effort"])
     priority = str(gap.get("priority_bucket") or "low")
     gap_type = str(gap.get("gap_type") or "").lower().replace(" ", "_")
     pit_status = _tool_gap_pit_feasibility_status(gap)
@@ -21428,13 +21323,13 @@ def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
 
 def build_data_acquisition_proposals(
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    *,
-    stock_context_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     proposals: list[dict[str, Any]] = []
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
-        metric_name = str(gap.get("metric_name") or gap.get("metric_candidate_id") or "")
+        metric_name = str(
+            gap.get("metric_name") or gap.get("metric_candidate_id") or ""
+        )
         if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
@@ -21443,11 +21338,15 @@ def build_data_acquisition_proposals(
         engineering_effort = _tool_gap_engineering_effort(gap)
         proposals.append(
             {
-                "data_proposal_id": _stable_id("DAP", {"tool_gap_id": gap_id}),
                 "tool_gap_id": gap_id,
                 "owner": owner,
                 "requested_dataset": metric_name or "unknown_dataset",
-                "required_fields": ["date", "value", "source_timestamp", "quality_flags"],
+                "required_fields": [
+                    "date",
+                    "value",
+                    "source_timestamp",
+                    "quality_flags",
+                ],
                 "pit_requirements": {
                     "timestamp_required": True,
                     "revision_tracking_required": True,
@@ -21470,57 +21369,31 @@ def build_data_acquisition_proposals(
                 "decision_status": "pending_review",
             }
         )
-    market_cap_missing_count = sum(
-        1
-        for row in stock_context_snapshot_rows
-        if "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
-    )
-    if market_cap_missing_count:
-        proposals.append(
-            {
-                "data_proposal_id": _stable_id(
-                    "DAP",
-                    {"tool_gap_id": "stock_context_market_cap_metadata_missing"},
-                ),
-                "tool_gap_id": "stock_context_market_cap_metadata_missing",
-                "owner": "data_engineering",
-                "requested_dataset": "stock_market_cap_pit_metadata",
-                "required_fields": [
-                    "stock_symbol",
-                    "as_of_date",
-                    "total_market_cap_cny",
-                    "float_market_cap_cny",
-                    "source_timestamp",
-                    "quality_flags",
-                ],
-                "pit_requirements": {
-                    "timestamp_required": True,
-                    "revision_tracking_required": True,
-                    "minimum_history_years": 5,
-                    "survivorship_issue": True,
-                },
-                "license_requirements": {
-                    "internal_model_use": True,
-                    "derived_metric_storage": True,
-                    "external_redistribution": False,
-                },
-                "license_status": "pending_review",
-                "pit_feasibility_status": "requires_pit_backfill_review",
-                "expected_use_cases": [
-                    "stock_context_market_cap_bucket",
-                    "superinvestor_stock_prior_stratification",
-                    "decision_agent_risk_context",
-                ],
-                "estimated_engineering_effort": "medium",
-                "estimated_vendor_cost_bucket": "unknown",
-                "business_priority": "medium",
-                "source_tool_gap_priority": "medium",
-                "decision_status": "pending_review",
-                "evidence_summary": {
-                    "missing_feature": "market_cap_bucket_missing",
-                    "affected_stock_context_snapshot_count": market_cap_missing_count,
-                },
-            }
+        proposal = proposals[-1]
+        if gap["tool_gap_id"] == "stock_context_market_cap_metadata_missing":
+            proposal.update(
+                {
+                    "requested_dataset": "stock_market_cap_pit_metadata",
+                    "required_fields": [
+                        "stock_symbol",
+                        "as_of_date",
+                        "total_market_cap_cny",
+                        "float_market_cap_cny",
+                        "source_timestamp",
+                        "quality_flags",
+                    ],
+                    "expected_use_cases": [
+                        "stock_context_market_cap_bucket",
+                        "superinvestor_stock_prior_stratification",
+                        "decision_agent_risk_context",
+                    ],
+                    "evidence_summary": gap.get("evidence_summary", {}),
+                }
+            )
+            proposal["pit_requirements"]["survivorship_issue"] = True
+        proposal.update(_ensure_mapping(gap.get("data_review")))
+        proposal["decision_status"] = str(
+            gap.get("data_decision_status") or "pending_review"
         )
     return proposals
 
@@ -21537,7 +21410,6 @@ def build_tool_design_proposals(
         owner = str(gap.get("owner") or "data_engineering")
         proposals.append(
             {
-                "tool_proposal_id": _stable_id("TDP", {"tool_gap_id": gap_id}),
                 "tool_gap_id": gap_id,
                 "owner": owner,
                 "tool_name_candidate": _tool_name_for_metric(metric_name),
@@ -21579,7 +21451,219 @@ def build_tool_design_proposals(
                 "status": "shadow_build_requested",
             }
         )
+        proposal = proposals[-1]
+        proposal.update(_ensure_mapping(gap.get("tool_review")))
+        proposal["requested_tools"] = (
+            _ensure_list(gap.get("requested_tools")) or proposal["requested_tools"]
+        )
+        proposal["status"] = str(
+            gap.get("shadow_implementation_status") or "shadow_build_requested"
+        )
     return proposals
+
+
+def _stock_market_cap_tool_gap(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "tool_gap_id": "stock_context_market_cap_metadata_missing",
+        "gap_type": "data_availability_missing",
+        "metric_candidate_id": "",
+        "metric_name": "stock_market_cap_pit_metadata",
+        "method_pattern_ids": [],
+        "target_agents": [],
+        "research_origin": {},
+        "priority_bucket": "medium",
+        "priority_reasons": ["market_cap_bucket_missing"],
+        "blocking_issues": ["requires_pit_backfill_review"],
+        "owner": "data_engineering",
+        "status": "proposal_pending",
+        "pit_feasibility_status": "requires_pit_backfill_review",
+        "engineering_effort": "medium",
+        "evidence_summary": dict(evidence),
+    }
+
+
+def backfill_stock_market_cap_tool_gap(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    stock_context_snapshot_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    count = sum(
+        "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
+        for row in stock_context_snapshot_rows
+    )
+    rows = [dict(row) for row in tool_gap_rows]
+    gap = _stock_market_cap_tool_gap(
+        {
+            "missing_feature": "market_cap_bucket_missing",
+            "affected_stock_context_snapshot_count": count,
+        }
+    )
+    existing = next(
+        (row for row in rows if row.get("tool_gap_id") == gap["tool_gap_id"]), None
+    )
+    if existing is not None:
+        existing["evidence_summary"] = gap["evidence_summary"]
+        if not count:
+            existing.update(
+                status="retired", priority_bucket="resolved", blocking_issues=[]
+            )
+        elif existing.get("status") == "retired":
+            existing.update(
+                status="proposal_pending",
+                priority_bucket="medium",
+                blocking_issues=gap["blocking_issues"],
+            )
+    elif count:
+        rows.append(gap)
+    return rows
+
+
+RETIRED_TOOL_PROPOSAL_FILES = (
+    "data_acquisition_proposals.jsonl",
+    "tool_design_proposals.jsonl",
+)
+
+
+def _unmigrated_tool_gap_review_blockers(directory: Path) -> list[str]:
+    return [
+        f"{name}: retired artifact; run report-intelligence --migrate-tool-gap-reviews --dry-run"
+        for name in RETIRED_TOOL_PROPOSAL_FILES
+        if (directory / name).exists()
+    ]
+
+
+def _read_tool_gap_facts(path: Path, *, blockers: list[str]) -> list[Mapping[str, Any]]:
+    legacy = _unmigrated_tool_gap_review_blockers(path.parent)
+    if legacy:
+        raise ValueError("; ".join(legacy))
+    return _read_registry_jsonl(path, label="tool_gaps", blockers=blockers)
+
+
+def migrate_tool_gap_reviews(
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """One-time explicit migration; archive source bytes, never echo review prose."""
+    directory = resolve_report_intelligence_registry_dir(root, registry_dir)
+    sources = [
+        directory / name
+        for name in RETIRED_TOOL_PROPOSAL_FILES
+        if (directory / name).exists()
+    ]
+    result: dict[str, Any] = {
+        "accepted": True,
+        "applied": False,
+        "dry_run": dry_run,
+        "source_file_count": len(sources),
+        "migrated_review_count": 0,
+        "blockers": [],
+    }
+    if not sources:
+        return result
+    blockers = result["blockers"]
+    gaps = _read_registry_jsonl(
+        directory / "tool_gaps.jsonl", label="tool_gaps", blockers=blockers
+    )
+    by_id, gap_errors = _rows_by_id(gaps, id_field="tool_gap_id")
+    blockers.extend(gap_errors)
+    merged = {key: dict(value) for key, value in by_id.items()}
+    original_bytes = {path: path.read_bytes() for path in sources}
+    for path in sources:
+        archive = directory / "retired_proposals" / path.name
+        if archive.exists() and archive.read_bytes() != original_bytes[path]:
+            blockers.append(f"{path.name}: archive already contains different data")
+        rows = _read_registry_jsonl(path, label=path.name, blockers=blockers)
+        _, duplicate_errors = _rows_by_id(rows, id_field="tool_gap_id")
+        blockers.extend(duplicate_errors)
+        is_data = path.name == RETIRED_TOOL_PROPOSAL_FILES[0]
+        for index, row in enumerate(rows, 1):
+            gap_id = str(row.get("tool_gap_id") or "")
+            if gap_id not in merged:
+                if is_data and gap_id == "stock_context_market_cap_metadata_missing":
+                    merged[gap_id] = _stock_market_cap_tool_gap(
+                        _ensure_mapping(row.get("evidence_summary"))
+                    )
+                else:
+                    blockers.append(f"{path.name} row {index}: unknown tool gap")
+                    continue
+            gap = merged[gap_id]
+            # Compare to the original gap, before applying any proposal overrides.
+            baseline_gap = by_id.get(gap_id, gap)
+            defaults = (
+                build_data_acquisition_proposals
+                if is_data
+                else build_tool_design_proposals
+            )([baseline_gap])
+            defaults = defaults[0] if defaults else {}
+            aliases = {
+                "owner": "owner",
+                "source_tool_gap_priority": "priority_bucket",
+                "business_priority": "priority_bucket",
+                "target_agents": "target_agents",
+                "license_status": "license_status",
+                "pit_feasibility_status": "pit_feasibility_status",
+                "estimated_engineering_effort": "engineering_effort",
+                "engineering_estimate": "engineering_effort",
+                "requested_tools": "requested_tools",
+                **(
+                    {"decision_status": "data_decision_status"}
+                    if is_data
+                    else {
+                        "status": "shadow_implementation_status",
+                        **{
+                            key: key
+                            for key in (
+                                "shadow_implementation_status",
+                                "implementation_status",
+                                "shadow_implementation",
+                                "required_tools",
+                                "shadow_requested_tools",
+                                "requested_tool",
+                                "required_tool",
+                            )
+                        },
+                    }
+                ),
+            }
+            review_key = "data_review" if is_data else "tool_review"
+            for key, value in row.items():
+                if key in {"tool_gap_id", "data_proposal_id", "tool_proposal_id"}:
+                    continue
+                if key in defaults and value == defaults[key]:
+                    continue
+                target = aliases.get(key)
+                destination = gap if target else gap.setdefault(review_key, {})
+                target = target or key
+                if not isinstance(destination, dict) or (
+                    target in destination and destination[target] != value
+                ):
+                    blockers.append(
+                        f"{path.name} row {index}: conflicting review fields"
+                    )
+                else:
+                    destination[target] = value
+            result["migrated_review_count"] += 1
+    for index, gap in enumerate(merged.values(), 1):
+        blockers.extend(f"tool_gaps row {index}: unsupported {field}"
+                        for field in _invalid_tool_gap_review_fields(gap))
+    if blockers:
+        result["accepted"] = False
+        return result
+    result["tool_gap_count"] = len(merged)
+    if dry_run:
+        return result
+    # Publish the canonical file first. An interrupted archive move can be retried;
+    # identical existing fields are accepted above, conflicting ones never overwrite.
+    temporary = directory / ".tool_gaps.migration.jsonl"
+    _write_jsonl(temporary, list(merged.values()))
+    temporary.replace(directory / "tool_gaps.jsonl")
+    archive_directory = directory / "retired_proposals"
+    archive_directory.mkdir(exist_ok=True)
+    for path in sources:
+        path.replace(archive_directory / path.name)
+    result["applied"] = True
+    return result
 
 
 ANALYSIS_RECIPE_ENTRY_CONDITION = "T+1_or_more_conservative_shadow_entry"
@@ -21676,6 +21760,9 @@ def build_analysis_recipes(
 ) -> list[dict[str, Any]]:
     recipes: list[dict[str, Any]] = []
     for method in method_rows:
+        # Case arguments and retired fragments have no independently specified trade rules.
+        if "research_case_based" in method:
+            continue
         method_id = str(method.get("method_pattern_id") or "")
         name = str(method.get("name") or method_id or "unknown_method")
         if not method_id:
@@ -21791,8 +21878,6 @@ RECIPE_PAPER_TRADING_INSTABILITY_BLOCKERS = (
     "market_regime_missing",
     "single_regime_concentration",
 )
-CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
-CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 
 
 def _recipe_paper_trading_protocol() -> dict[str, Any]:
@@ -22631,36 +22716,13 @@ def _requested_tools_from_tool_record(row: Mapping[str, Any]) -> list[str]:
     )
 
 
-def _proposal_rows_by_gap_id(
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
-) -> dict[str, list[Mapping[str, Any]]]:
-    rows_by_gap_id: dict[str, list[Mapping[str, Any]]] = {}
-    for proposal in tool_design_proposal_rows:
-        gap_id = str(proposal.get("tool_gap_id") or "").strip()
-        if gap_id:
-            rows_by_gap_id.setdefault(gap_id, []).append(proposal)
-    return rows_by_gap_id
 
 
 def _shadow_implemented_requested_tools(
-    *,
-    tool_gap_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
+    *, tool_gap_rows: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
-    implemented_tools: set[str] = set()
-    for gap in tool_gap_rows:
-        gap_id = str(gap.get("tool_gap_id") or "").strip()
-        proposals = proposal_rows_by_gap_id.get(gap_id, ())
-        if not (
-            _tool_gap_shadow_implemented(gap)
-            or any(_tool_gap_shadow_implemented(proposal) for proposal in proposals)
-        ):
-            continue
-        implemented_tools.update(_requested_tools_from_tool_record(gap))
-        for proposal in proposals:
-            implemented_tools.update(_requested_tools_from_tool_record(proposal))
-    return sorted(implemented_tools)
+    return sorted({tool for gap in tool_gap_rows if gap.get("status") != "retired" and _tool_gap_shadow_implemented(gap)
+                   for tool in _requested_tools_from_tool_record(gap)})
 
 
 def build_recipe_paper_trading_runs(
@@ -22913,7 +22975,6 @@ def build_recipe_paper_trading_summary(
     run_id: str,
     recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]] = (),
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
     direct_pit_binding_gap_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
@@ -22932,12 +22993,10 @@ def build_recipe_paper_trading_summary(
     unimplemented_tool_gap_ids: set[str] = set()
     shadow_implemented_tool_gap_ids: set[str] = set()
     queued_tool_gap_ids: set[str] = set()
-    queued_tool_proposal_ids: set[str] = set()
     queued_requested_tools: set[str] = set()
     shadow_implemented_requested_tools = set(
         _shadow_implemented_requested_tools(
             tool_gap_rows=tool_gap_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
         )
     )
     queued_recipe_ids: set[str] = set()
@@ -22958,15 +23017,7 @@ def build_recipe_paper_trading_summary(
                         method_key,
                         [],
                     ).append(gap_id)
-    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
-    proposal_ids_by_gap_id: dict[str, list[str]] = {}
-    for proposal in tool_design_proposal_rows:
-        gap_id = str(proposal.get("tool_gap_id") or "").strip()
-        proposal_id = str(proposal.get("tool_proposal_id") or "").strip()
-        if gap_id and proposal_id:
-            proposal_ids_by_gap_id.setdefault(gap_id, []).append(proposal_id)
     tool_only_gap_ids: set[str] = set()
-    tool_only_proposal_ids: set[str] = set()
     for run in recipe_paper_trading_runs:
         status = str(run.get("paper_trading_status") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -22990,9 +23041,6 @@ def build_recipe_paper_trading_summary(
                     (),
                 ):
                     tool_only_gap_ids.add(gap_id)
-                    tool_only_proposal_ids.update(
-                        proposal_ids_by_gap_id.get(gap_id, ())
-                    )
         if "required_tools_not_shadow_implemented" in blocked_reasons:
             queued_recipe_ids.add(recipe_id)
             for tool in _ensure_list(run.get("required_tools")):
@@ -23009,9 +23057,6 @@ def build_recipe_paper_trading_summary(
                     (),
                 ):
                     queued_tool_gap_ids.add(gap_id)
-                    queued_tool_proposal_ids.update(
-                        proposal_ids_by_gap_id.get(gap_id, ())
-                    )
         if status == "passed":
             passed_ids.append(recipe_id)
         else:
@@ -23136,11 +23181,10 @@ def build_recipe_paper_trading_summary(
         if gap_id not in queued_tool_gap_ids:
             continue
         queued_gap_requested_tools.update(_requested_tools_from_tool_record(gap))
-        for proposal in proposal_rows_by_gap_id.get(gap_id, ()):
-            queued_gap_requested_tools.update(_requested_tools_from_tool_record(proposal))
     unlinked_requested_tools = queued_requested_tools - queued_gap_requested_tools
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
@@ -23165,8 +23209,6 @@ def build_recipe_paper_trading_summary(
         "tool_only_blocked_recipe_ids": sorted(tool_only_blocked_ids),
         "tool_only_blocked_tool_gap_count": len(tool_only_gap_ids),
         "tool_only_blocked_tool_gap_ids": sorted(tool_only_gap_ids),
-        "tool_only_blocked_tool_proposal_count": len(tool_only_proposal_ids),
-        "tool_only_blocked_tool_proposal_ids": sorted(tool_only_proposal_ids),
         "tool_implementation_queue": {
             "queue_policy": (
                 "implement or explicitly reject tool gaps linked to direct-PIT "
@@ -23185,8 +23227,6 @@ def build_recipe_paper_trading_summary(
             ),
             "tool_gap_count": len(queued_tool_gap_ids),
             "tool_gap_ids": sorted(queued_tool_gap_ids),
-            "tool_proposal_count": len(queued_tool_proposal_ids),
-            "tool_proposal_ids": sorted(queued_tool_proposal_ids),
             "shadow_implemented_tool_gap_count": len(
                 shadow_implemented_tool_gap_ids
             ),
@@ -23361,38 +23401,13 @@ def build_confidence_impact_observations(
     return observations
 
 
-def _pearson_correlation(pairs: Sequence[tuple[float, float]]) -> float | None:
-    if len(pairs) < 2:
-        return None
-    xs = [item[0] for item in pairs]
-    ys = [item[1] for item in pairs]
-    x_mean = sum(xs) / len(xs)
-    y_mean = sum(ys) / len(ys)
-    x_var = sum((value - x_mean) ** 2 for value in xs)
-    y_var = sum((value - y_mean) ** 2 for value in ys)
-    if x_var <= 0 or y_var <= 0:
-        return None
-    covariance = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
-    return covariance / ((x_var * y_var) ** 0.5)
-
-
-def _confidence_delta_bucket(delta: float | None) -> str:
-    if delta is None or delta == 0:
-        return "zero"
-    if delta < 0:
-        return "negative"
-    if delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD:
-        return "high_positive"
-    return "low_positive"
-
-
 def _confidence_bucket_outcome_summary(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         delta = _float_or_none(row.get("confidence_delta"))
-        bucket = _confidence_delta_bucket(delta)
+        bucket = confidence_delta_bucket(delta)
         item = grouped.setdefault(
             bucket,
             {
@@ -23426,13 +23441,6 @@ def _confidence_bucket_outcome_summary(
             else None,
         }
     return dict(sorted(summary.items()))
-
-
-def _is_new_regime_observation(row: Mapping[str, Any]) -> bool:
-    if row.get("regime_is_new") is True:
-        return True
-    regime_status = str(row.get("regime_status") or "").strip().lower()
-    return regime_status in {"new", "new_regime", "unseen_regime"}
 
 
 def build_confidence_impact_monitor(
@@ -23510,7 +23518,7 @@ def build_confidence_impact_monitor(
             )
             if recipe_id:
                 aggregate_calibration_recipe_ids.append(recipe_id)
-        if _is_new_regime_observation(row) and (
+        if is_new_regime_observation(row) and (
             (
                 calibration_error is not None
                 and calibration_error > CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD
@@ -23559,7 +23567,7 @@ def build_confidence_impact_monitor(
             unvalidated_impact_count += 1
         for reason in _ensure_list(row.get("blocker_reasons")):
             _increment_count(blocker_counts, reason)
-    confidence_alpha_correlation = _pearson_correlation(confidence_alpha_pairs)
+    confidence_alpha_correlation = pearson_correlation(confidence_alpha_pairs)
     if confidence_alpha_correlation is not None and confidence_alpha_correlation < 0:
         _increment_count(
             calibration_rule_counts,
@@ -23689,20 +23697,8 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         )
     tool_gap_rows: list[Mapping[str, Any]] = []
     tool_gap_path = registry_path / "tool_gaps.jsonl"
-    if tool_gap_path.exists():
-        tool_gap_rows = _read_registry_jsonl(
-            tool_gap_path,
-            label="tool_gaps",
-            blockers=blockers,
-        )
-    tool_design_proposal_rows: list[Mapping[str, Any]] = []
-    tool_design_proposal_path = registry_path / "tool_design_proposals.jsonl"
-    if tool_design_proposal_path.exists():
-        tool_design_proposal_rows = _read_registry_jsonl(
-            tool_design_proposal_path,
-            label="tool_design_proposals",
-            blockers=blockers,
-        )
+    if tool_gap_path.exists() or _unmigrated_tool_gap_review_blockers(registry_path):
+        tool_gap_rows = _read_tool_gap_facts(tool_gap_path, blockers=blockers)
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
     outcome_label_rows: list[Mapping[str, Any]] = []
     if outcome_label_path.exists():
@@ -23713,7 +23709,6 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         )
     shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
@@ -23729,7 +23724,6 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
             analysis_recipe_rows=analysis_recipe_rows,
             outcome_label_rows=outcome_label_rows,
@@ -25048,7 +25042,7 @@ def _stock_industry_evolution_gate_checks(
     ) -> tuple[dict[str, Any], list[str]]:
         from .agent_research_context import (  # local import avoids CLI startup coupling
             SAFE_ACTIONABILITY,
-            assert_public_safe_context,
+            assert_research_context_boundary,
             build_rke_agent_research_context_from_rows,
         )
 
@@ -25065,7 +25059,7 @@ def _stock_industry_evolution_gate_checks(
                 metadata=list(metadata_rows or ()),
             )
             try:
-                assert_public_safe_context(context)
+                assert_research_context_boundary(context)
             except ValueError:
                 private_text_violation_count += 1
             if context.get("research_only") is not True:
@@ -25674,7 +25668,6 @@ AGENT_CONTEXT_AUDIT_REQUESTS = (
     ("superinvestor.munger", "superinvestor"),
     ("cio", "decision"),
 )
-AGENT_CONTEXT_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
 
 
 def _agent_context_export_gate_check(
@@ -25698,7 +25691,7 @@ def _agent_context_export_gate_check(
     from .agent_research_context import (  # local import avoids CLI startup coupling
         RANKING_POLICY_ID,
         SAFE_ACTIONABILITY,
-        assert_public_safe_context,
+        assert_research_context_boundary,
         build_rke_agent_research_context_from_rows,
     )
 
@@ -25727,10 +25720,9 @@ def _agent_context_export_gate_check(
                 max_items=3,
                 forecasts=forecast_rows,
                 metadata=metadata,
-                weighted_research_contexts=weighted_rows,
             )
             try:
-                assert_public_safe_context(context)
+                assert_research_context_boundary(context)
             except ValueError:
                 private_text_violation_count += 1
             summary = _ensure_mapping(context.get("summary"))
@@ -25757,13 +25749,6 @@ def _agent_context_export_gate_check(
                 blockers.append(f"agent_context_no_prior_reason_missing:{agent_id}")
             for expected_rank, item in enumerate(items, 1):
                 if _optional_positive_int(item.get("retrieval_rank")) != expected_rank:
-                    ranking_policy_violation_count += 1
-                if (
-                    str(item.get("priority_bucket") or "").strip()
-                    not in AGENT_CONTEXT_PRIORITY_BUCKETS
-                ):
-                    ranking_policy_violation_count += 1
-                if not _ensure_list(item.get("ranking_reason_codes")):
                     ranking_policy_violation_count += 1
                 if item.get("current_data_required") is not True:
                     current_data_guard_violation_count += 1
@@ -27717,7 +27702,6 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] = (),
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
@@ -28394,7 +28378,7 @@ def build_prompt_mutation_candidates(
                 "engineering queue only after PIT, license, and required-field "
                 "requirements are explicit."
             ),
-            trigger_sources=["tool_gaps", "data_acquisition_proposals"],
+            trigger_sources=["tool_gaps"],
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
@@ -28406,38 +28390,39 @@ def build_prompt_mutation_candidates(
             severity="medium",
             blocked_by=["data_engineering_review_required"],
         )
-    active_data_proposals = [
+    active_data_gaps = [
         row
-        for row in data_acquisition_proposal_rows
-        if str(row.get("decision_status") or "pending_review") != "rejected"
+        for row in tool_gap_rows
+        if str(row.get("data_decision_status") or "pending_review") != "rejected"
+        and row.get("status") != "retired"
     ]
-    if active_data_proposals:
+    if active_data_gaps:
         data_priority_counts: dict[str, int] = {}
         data_pit_counts: dict[str, int] = {}
         data_license_counts: dict[str, int] = {}
-        for proposal in active_data_proposals:
-            _increment_count(data_priority_counts, proposal.get("business_priority"))
+        for proposal in active_data_gaps:
+            _increment_count(data_priority_counts, proposal.get("priority_bucket"))
             _increment_count(
                 data_pit_counts,
-                proposal.get("pit_feasibility_status"),
+                _tool_gap_pit_feasibility_status(proposal),
             )
-            _increment_count(data_license_counts, proposal.get("license_status"))
+            _increment_count(data_license_counts, _tool_gap_license_status(proposal))
         market_cap_gap_count = sum(
             1
-            for proposal in active_data_proposals
+            for proposal in active_data_gaps
             if proposal.get("tool_gap_id")
             == "stock_context_market_cap_metadata_missing"
         )
         blockers = ["data_engineering_review_required"]
         if any(
-            str(proposal.get("pit_feasibility_status") or "")
+            str(_tool_gap_pit_feasibility_status(proposal) or "")
             != "pit_feasible"
-            for proposal in active_data_proposals
+            for proposal in active_data_gaps
         ):
             blockers.append("pit_backfill_review_required")
         if any(
-            str(proposal.get("license_status") or "") != "cleared"
-            for proposal in active_data_proposals
+            str(_tool_gap_license_status(proposal) or "") != "cleared"
+            for proposal in active_data_gaps
         ):
             blockers.append("license_review_required")
         _add_prompt_mutation_candidate(
@@ -28449,18 +28434,18 @@ def build_prompt_mutation_candidates(
             proposed_change=(
                 "Keep agent-facing context gaps as no-prior reasons until "
                 "required PIT datasets, license status, and engineering review "
-                "are explicit in data acquisition proposals."
+                "are explicit in the tool gap registry."
             ),
-            trigger_sources=["data_acquisition_proposals"],
+            trigger_sources=["tool_gaps"],
             evidence_refs=[
                 {
                     "artifact_path": (
                         "registry/report_intelligence/"
-                        "data_acquisition_proposals.jsonl"
+                        "tool_gaps.jsonl"
                     ),
-                    "field": "decision_status",
-                    "proposal_count": len(active_data_proposals),
-                    "business_priority_counts": dict(
+                    "field": "data_decision_status",
+                    "tool_gap_count": len(active_data_gaps),
+                    "priority_bucket_counts": dict(
                         sorted(data_priority_counts.items())
                     ),
                     "pit_feasibility_status_counts": dict(sorted(data_pit_counts.items())),
@@ -28468,7 +28453,7 @@ def build_prompt_mutation_candidates(
                     "market_cap_metadata_gap_count": market_cap_gap_count,
                     "top_tool_gap_ids": [
                         str(proposal.get("tool_gap_id") or "")
-                        for proposal in active_data_proposals[:10]
+                        for proposal in active_data_gaps[:10]
                         if str(proposal.get("tool_gap_id") or "").strip()
                     ],
                 }
@@ -28835,16 +28820,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="outcome_labeling_readiness",
         blockers=blockers,
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_path / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
-    data_acquisition_proposal_rows = _read_registry_jsonl(
-        registry_path / "data_acquisition_proposals.jsonl",
-        label="data_acquisition_proposals",
-        blockers=blockers,
-    )
+    tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     recipe_paper_trading_run_rows = _read_registry_jsonl(
         registry_path / "recipe_paper_trading_runs.jsonl",
         label="recipe_paper_trading_runs",
@@ -28914,7 +28890,6 @@ def write_report_intelligence_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -29733,11 +29708,7 @@ def write_report_intelligence_runtime_safety_audit(
             blockers=blockers,
         )
     if tool_gap_rows is None:
-        tool_gap_rows = _read_registry_jsonl(
-            registry_path / "tool_gaps.jsonl",
-            label="tool_gaps",
-            blockers=blockers,
-        )
+        tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
 
     audit = build_report_intelligence_runtime_safety_audit(
         run_id=run_id,
@@ -31813,8 +31784,6 @@ def build_report_intelligence_tool_feasibility_audit(
     metric_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
     load_blockers: Sequence[str] = (),
@@ -31924,6 +31893,8 @@ def build_report_intelligence_tool_feasibility_audit(
     gap_priority_counts: dict[str, int] = {}
     for index, gap in enumerate(tool_gap_rows, 1):
         gap_id = str(gap.get("tool_gap_id") or f"row-{index}")
+        gap_failures.extend(f"{gap_id}: unsupported {field}"
+                            for field in _invalid_tool_gap_review_fields(gap))
         metric_id = str(gap.get("metric_candidate_id") or "")
         priority = str(gap.get("priority_bucket") or "")
         gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1
@@ -31984,181 +31955,6 @@ def build_report_intelligence_tool_feasibility_audit(
                 ),
             },
             failures=gap_failures,
-        )
-    )
-
-    data_by_gap_id, data_id_failures = _rows_by_id(
-        data_acquisition_proposal_rows,
-        id_field="tool_gap_id",
-    )
-    data_failures = list(data_id_failures)
-    for index, proposal in enumerate(data_acquisition_proposal_rows, 1):
-        proposal_id = str(proposal.get("data_proposal_id") or f"row-{index}")
-        gap_id = str(proposal.get("tool_gap_id") or "")
-        gap = tool_gap_by_id.get(gap_id)
-        if gap is None:
-            data_failures.append(f"{proposal_id}: tool_gap_id not found")
-            continue
-        if proposal.get("owner") != gap.get("owner"):
-            data_failures.append(f"{proposal_id}: owner must match tool gap")
-        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
-            data_failures.append(
-                f"{proposal_id}: source_tool_gap_priority must match tool gap"
-            )
-        if not _ensure_list(proposal.get("required_fields")):
-            data_failures.append(f"{proposal_id}: required_fields required")
-        pit = _ensure_mapping(proposal.get("pit_requirements"))
-        license_requirements = _ensure_mapping(proposal.get("license_requirements"))
-        if pit.get("timestamp_required") is not True:
-            data_failures.append(f"{proposal_id}: pit timestamp_required must be true")
-        if not isinstance(pit.get("revision_tracking_required"), bool):
-            data_failures.append(
-                f"{proposal_id}: revision_tracking_required must be boolean"
-            )
-        if _float_or_none(pit.get("minimum_history_years")) is None:
-            data_failures.append(f"{proposal_id}: minimum_history_years required")
-        if not isinstance(pit.get("survivorship_issue"), bool):
-            data_failures.append(f"{proposal_id}: survivorship_issue must be boolean")
-        if license_requirements.get("internal_model_use") is not True:
-            data_failures.append(
-                f"{proposal_id}: internal_model_use license requirement must be true"
-            )
-        if license_requirements.get("derived_metric_storage") is not True:
-            data_failures.append(
-                f"{proposal_id}: derived_metric_storage license requirement must be true"
-            )
-        if license_requirements.get("external_redistribution") is not False:
-            data_failures.append(
-                f"{proposal_id}: external_redistribution must remain false"
-            )
-        if proposal.get("license_status") not in {
-            "approved",
-            "pending_review",
-            "restricted",
-            "prohibited",
-        }:
-            data_failures.append(f"{proposal_id}: unsupported license_status")
-        if proposal.get("pit_feasibility_status") not in {
-            "pit_feasible_pending_vendor_review",
-            "requires_pit_backfill_review",
-            "pit_blocked",
-        }:
-            data_failures.append(f"{proposal_id}: unsupported pit_feasibility_status")
-    for gap_id, gap in tool_gap_by_id.items():
-        if str(gap.get("status") or "") == "retired":
-            continue
-        if gap_id not in data_by_gap_id:
-            data_failures.append(f"{gap_id}: data acquisition proposal missing")
-    checks.append(
-        _audit_check(
-            check_id="RI-TOOL-03",
-            requirement=(
-                "Every tool gap must have a data acquisition proposal with explicit "
-                "PIT, survivorship/restatement, required-field, and license requirements."
-            ),
-            evidence={
-                "data_acquisition_proposal_rows": len(data_acquisition_proposal_rows),
-                "tool_gap_rows": len(tool_gap_rows),
-            },
-            failures=data_failures,
-        )
-    )
-
-    tool_by_gap_id, tool_id_failures = _rows_by_id(
-        tool_design_proposal_rows,
-        id_field="tool_gap_id",
-    )
-    design_failures = list(tool_id_failures)
-    for index, proposal in enumerate(tool_design_proposal_rows, 1):
-        proposal_id = str(proposal.get("tool_proposal_id") or f"row-{index}")
-        gap_id = str(proposal.get("tool_gap_id") or "")
-        gap = tool_gap_by_id.get(gap_id)
-        if gap is None:
-            design_failures.append(f"{proposal_id}: tool_gap_id not found")
-            continue
-        if proposal.get("owner") != gap.get("owner"):
-            design_failures.append(f"{proposal_id}: owner must match tool gap")
-        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
-            design_failures.append(
-                f"{proposal_id}: source_tool_gap_priority must match tool gap"
-            )
-        if proposal.get("status") not in {
-            "shadow_build_requested",
-            "blocked_pending_review",
-            "shadow_implemented",
-            "shadow_validated",
-            "implemented",
-            "validated",
-        }:
-            design_failures.append(
-                f"{proposal_id}: status must remain shadow or blocked"
-            )
-        input_parameters = _ensure_mapping(proposal.get("input_parameters"))
-        for field in ("market", "as_of_date", "lookback_days"):
-            if field not in input_parameters:
-                design_failures.append(f"{proposal_id}: input_parameters.{field} required")
-        output_schema = _ensure_mapping(proposal.get("output_schema"))
-        if "as_of_date" not in output_schema:
-            design_failures.append(f"{proposal_id}: output_schema.as_of_date required")
-        metrics = [
-            item
-            for item in _ensure_list(output_schema.get("metrics"))
-            if isinstance(item, Mapping)
-        ]
-        if not metrics:
-            design_failures.append(f"{proposal_id}: output_schema.metrics required")
-        for metric_index, metric in enumerate(metrics, 1):
-            for field in (
-                "name",
-                "value",
-                "unit",
-                "freshness_days",
-                "pit_valid",
-                "fallback",
-                "quality_flags",
-            ):
-                if field not in metric:
-                    design_failures.append(
-                        f"{proposal_id}: output_schema.metrics[{metric_index}].{field} required"
-                    )
-        fallback_policy = _ensure_mapping(proposal.get("fallback_policy"))
-        fallback_cap = _float_or_none(fallback_policy.get("confidence_cap_if_fallback"))
-        if fallback_cap is None or fallback_cap > 0.60:
-            design_failures.append(
-                f"{proposal_id}: fallback confidence cap must be <= 0.60"
-            )
-        validation_plan = _ensure_mapping(proposal.get("validation_plan"))
-        if (_float_or_none(validation_plan.get("shadow_runtime_days")) or 0.0) < 60:
-            design_failures.append(
-                f"{proposal_id}: shadow_runtime_days must be at least 60"
-            )
-        if (_float_or_none(validation_plan.get("required_effective_n")) or 0.0) < 30:
-            design_failures.append(
-                f"{proposal_id}: required_effective_n must be at least 30"
-            )
-        if not str(validation_plan.get("primary_metric") or "").strip():
-            design_failures.append(f"{proposal_id}: primary_metric required")
-        if not _ensure_list(validation_plan.get("secondary_metrics")):
-            design_failures.append(f"{proposal_id}: secondary_metrics required")
-    for gap_id, gap in tool_gap_by_id.items():
-        if str(gap.get("status") or "") == "retired":
-            continue
-        if gap_id not in tool_by_gap_id:
-            design_failures.append(f"{gap_id}: tool design proposal missing")
-    checks.append(
-        _audit_check(
-            check_id="RI-TOOL-04",
-            requirement=(
-                "Every tool gap must have a deterministic tool design proposal with "
-                "input parameters, output schema, fallback policy, and validation plan."
-            ),
-            evidence={
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
-                "tool_gap_rows": len(tool_gap_rows),
-                "minimum_shadow_runtime_days": 60,
-                "minimum_required_effective_n": 30,
-            },
-            failures=design_failures,
         )
     )
 
@@ -32271,6 +32067,7 @@ def build_report_intelligence_tool_feasibility_audit(
     ]
     return {
         "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "accepted": not blockers,
@@ -32281,8 +32078,6 @@ def build_report_intelligence_tool_feasibility_audit(
                 len(metric_rows),
                 len(tool_coverage_match_rows),
                 len(tool_gap_rows),
-                len(data_acquisition_proposal_rows),
-                len(tool_design_proposal_rows),
                 len(analysis_recipe_rows),
                 len(runtime_tool_gap_observation_rows),
             ]
@@ -32290,8 +32085,7 @@ def build_report_intelligence_tool_feasibility_audit(
         "checks": checks,
         "policy": (
             "report-intelligence tool feasibility requires deterministic coverage "
-            "records, explicit PIT and license requirements, gap-to-proposal "
-            "lineage, checker-validatable output schemas, bounded fallback policy, "
+            "records, canonical gap review facts, and bounded runtime fallback policy, "
             "and shadow-only runtime until tool correctness and promotion gates pass"
         ),
     }
@@ -32305,8 +32099,6 @@ def write_report_intelligence_tool_feasibility_audit(
     metric_rows: Sequence[Mapping[str, Any]] | None = None,
     tool_coverage_match_rows: Sequence[Mapping[str, Any]] | None = None,
     tool_gap_rows: Sequence[Mapping[str, Any]] | None = None,
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
     analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -32331,23 +32123,7 @@ def write_report_intelligence_tool_feasibility_audit(
             blockers=blockers,
         )
     if tool_gap_rows is None:
-        tool_gap_rows = _read_registry_jsonl(
-            registry_path / "tool_gaps.jsonl",
-            label="tool_gaps",
-            blockers=blockers,
-        )
-    if data_acquisition_proposal_rows is None:
-        data_acquisition_proposal_rows = _read_registry_jsonl(
-            registry_path / "data_acquisition_proposals.jsonl",
-            label="data_acquisition_proposals",
-            blockers=blockers,
-        )
-    if tool_design_proposal_rows is None:
-        tool_design_proposal_rows = _read_registry_jsonl(
-            registry_path / "tool_design_proposals.jsonl",
-            label="tool_design_proposals",
-            blockers=blockers,
-        )
+        tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     if analysis_recipe_rows is None:
         analysis_recipe_rows = _read_registry_jsonl(
             registry_path / "analysis_recipes.jsonl",
@@ -32366,8 +32142,6 @@ def write_report_intelligence_tool_feasibility_audit(
         metric_rows=metric_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
         load_blockers=blockers,
@@ -32597,7 +32371,8 @@ def build_report_intelligence_recipe_validation_audit(
 
     validation_candidate_failures: list[str] = []
     validation_candidate_count = 0
-    tool_feasibility_accepted = tool_feasibility_audit.get("accepted") is True
+    tool_feasibility_accepted = (tool_feasibility_audit.get("accepted") is True
+                                 and tool_feasibility_audit.get("tool_gap_contract") == "tool_gap_facts_v1")
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         status = str(recipe.get("validation_status") or "")
         runtime_mode = str(recipe.get("runtime_mode") or "")
@@ -32932,8 +32707,6 @@ def build_report_intelligence_monitoring_report(
     method_performance_profile_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     weighted_research_context_rows: Sequence[Mapping[str, Any]],
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
@@ -32960,15 +32733,16 @@ def build_report_intelligence_monitoring_report(
     for row in tool_gap_rows:
         priority = str(row.get("priority_bucket") or "unknown")
         gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1
-    open_data_proposals = sum(
+    open_data_gaps = sum(
         1
-        for row in data_acquisition_proposal_rows
-        if str(row.get("decision_status") or "") not in {"accepted", "rejected", "closed"}
+        for row in tool_gap_rows
+        if row.get("status") != "retired"
+        and str(row.get("data_decision_status") or "pending_review") not in {"accepted", "rejected", "closed"}
     )
-    accepted_tool_proposals = sum(
+    implemented_tool_gaps = sum(
         1
-        for row in tool_design_proposal_rows
-        if str(row.get("status") or "") in {"accepted", "implemented", "paper_trading"}
+        for row in tool_gap_rows
+        if _tool_gap_shadow_implemented(row)
     )
     shadow_recipes = sum(
         1
@@ -33020,6 +32794,7 @@ def build_report_intelligence_monitoring_report(
     confidence_monitor = _ensure_mapping(confidence_impact_monitor)
     return {
         "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "rollout_mode": rollout_mode,
@@ -33065,11 +32840,11 @@ def build_report_intelligence_monitoring_report(
             "tool_gap_open_count": len(tool_gap_rows),
             "tool_gap_priority_counts": dict(sorted(gap_priority_counts.items())),
             "high_priority_gap_aging_count": 0,
-            "tool_proposal_acceptance_rate": _rate(
-                accepted_tool_proposals,
-                len(tool_design_proposal_rows),
+            "tool_gap_implementation_rate": _rate(
+                implemented_tool_gaps,
+                len(tool_gap_rows),
             ),
-            "data_proposal_open_count": open_data_proposals,
+            "data_review_open_count": open_data_gaps,
             "shadow_tool_correctness_failure_rate": None,
             "recipe_validation_pass_rate": _rate(
                 validated_recipes,
@@ -33253,8 +33028,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     method_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     outcome_label_rows: Sequence[Mapping[str, Any]],
     outcome_labeling_readiness: Mapping[str, Any],
@@ -33286,7 +33059,8 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     pit_leakage_accepted = _audit_report_accepted(pit_leakage_audit)
     provenance_accepted = _audit_report_accepted(extraction_provenance_audit)
     statistical_accepted = _audit_report_accepted(statistical_robustness_audit)
-    tool_feasibility_accepted = _audit_report_accepted(tool_feasibility_audit)
+    tool_feasibility_accepted = (_audit_report_accepted(tool_feasibility_audit)
+                                 and tool_feasibility_audit.get("tool_gap_contract") == "tool_gap_facts_v1")
     recipe_validation_accepted = _audit_report_accepted(recipe_validation_audit)
     footprint_review_accepted = footprint_review_summary.get("accepted") is True
     footprint_quality_passed = (
@@ -33345,16 +33119,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     for row in tool_coverage_match_rows:
         status = str(row.get("coverage_status") or "unknown")
         coverage_counts[status] = coverage_counts.get(status, 0) + 1
-    proposal_gap_ids = {
-        str(row.get("tool_gap_id") or "")
-        for row in data_acquisition_proposal_rows
-        if str(row.get("tool_gap_id") or "").strip()
-    }
-    design_gap_ids = {
-        str(row.get("tool_gap_id") or "")
-        for row in tool_design_proposal_rows
-        if str(row.get("tool_gap_id") or "").strip()
-    }
     gap_ids = {
         str(row.get("tool_gap_id") or "")
         for row in tool_gap_rows
@@ -33581,18 +33345,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         )
     if not active_gap_ids:
         phase_e_failures.append("tool gap registry must contain reviewable gaps")
-    missing_data_proposals = sorted(active_gap_ids - proposal_gap_ids)
-    missing_tool_proposals = sorted(active_gap_ids - design_gap_ids)
-    if missing_data_proposals:
-        phase_e_failures.append(
-            "tool gaps missing data acquisition proposals: "
-            + ", ".join(missing_data_proposals[:20])
-        )
-    if missing_tool_proposals:
-        phase_e_failures.append(
-            "tool gaps missing tool design proposals: "
-            + ", ".join(missing_tool_proposals[:20])
-        )
     if not tool_feasibility_accepted:
         phase_e_failures.append("tool_feasibility_audit must be accepted")
     phases.append(
@@ -33601,13 +33353,11 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             phase_name="Tool coverage and gap registry",
             requirement=(
                 "Map MVP metrics to current tools, rank PIT/license-aware gaps, "
-                "and generate data/tool proposals for review."
+                "and retain review decisions in the gap registry."
             ),
             evidence_artifacts=[
                 "registry/report_intelligence/tool_coverage_matches.jsonl",
                 "registry/report_intelligence/tool_gaps.jsonl",
-                "registry/report_intelligence/data_acquisition_proposals.jsonl",
-                "registry/report_intelligence/tool_design_proposals.jsonl",
                 "registry/report_intelligence/tool_feasibility_audit.json",
             ],
             evidence_counts={
@@ -33617,10 +33367,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
                 "tool_gap_rows": len(tool_gap_rows),
                 "active_tool_gap_rows": len(active_gap_ids),
                 "retired_tool_gap_rows": len(gap_ids - active_gap_ids),
-                "data_acquisition_proposal_rows": len(
-                    data_acquisition_proposal_rows
-                ),
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
                 "tool_feasibility_audit_accepted": tool_feasibility_accepted,
             },
             failures=phase_e_failures,
@@ -33846,29 +33592,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     )
     requirement_checklist = [
         _coverage_requirement_check(
-            check_id="RI15-A-D1",
-            phase_id="A",
-            check_type="deliverable",
-            requirement=(
-                "report_metadata, forecast_claim, analytical_footprint, ledger, "
-                "outcome-label, performance-profile, metric, method, tool-gap, "
-                "proposal, and analysis_recipe schemas are registered."
-            ),
-            accepted=(
-                len(REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS) >= 15
-            ),
-            evidence_artifacts=[
-                f"schemas/{name}"
-                for name in REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
-            ],
-            evidence_counts={
-                "expected_schema_artifact_count": len(
-                    REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
-                )
-            },
-            blocker="report-intelligence schema artifact set is incomplete",
-        ),
-        _coverage_requirement_check(
             check_id="RI15-A-D2",
             phase_id="A",
             check_type="acceptance",
@@ -34024,34 +33747,26 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             check_type="deliverable",
             requirement=(
                 "Tool coverage matcher, ranked tool gaps, data availability/PIT "
-                "review, data acquisition proposals, and tool design proposals "
+                "review, and gap implementation evidence "
                 "cover every metric candidate."
             ),
             accepted=(
                 bool(metric_rows)
                 and len(tool_coverage_match_rows) >= len(metric_rows)
                 and bool(gap_ids)
-                and not missing_data_proposals
-                and not missing_tool_proposals
                 and tool_feasibility_accepted
             ),
             evidence_artifacts=[
                 "registry/report_intelligence/tool_coverage_matches.jsonl",
                 "registry/report_intelligence/tool_gaps.jsonl",
-                "registry/report_intelligence/data_acquisition_proposals.jsonl",
-                "registry/report_intelligence/tool_design_proposals.jsonl",
                 "registry/report_intelligence/tool_feasibility_audit.json",
             ],
             evidence_counts={
                 "metric_candidate_rows": len(metric_rows),
                 "tool_coverage_match_rows": len(tool_coverage_match_rows),
                 "tool_gap_rows": len(tool_gap_rows),
-                "data_acquisition_proposal_rows": len(
-                    data_acquisition_proposal_rows
-                ),
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
             },
-            blocker="tool coverage/gap proposal loop is incomplete",
+            blocker="tool coverage/gap review loop is incomplete",
         ),
         _coverage_requirement_check(
             check_id="RI15-F-D1",
@@ -34166,6 +33881,7 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     blockers.extend(checklist_blockers)
     return {
         "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md",
@@ -34250,21 +33966,7 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="tool_coverage_matches",
         blockers=blockers,
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_path / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
-    data_acquisition_proposal_rows = _read_registry_jsonl(
-        registry_path / "data_acquisition_proposals.jsonl",
-        label="data_acquisition_proposals",
-        blockers=blockers,
-    )
-    tool_design_proposal_rows = _read_registry_jsonl(
-        registry_path / "tool_design_proposals.jsonl",
-        label="tool_design_proposals",
-        blockers=blockers,
-    )
+    tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     forecast_ledger_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -34417,8 +34119,6 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         method_rows=method_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         outcome_label_rows=outcome_label_rows,
         outcome_labeling_readiness=outcome_labeling_readiness,
@@ -34534,6 +34234,13 @@ def _method_pattern_canonical_name(record: Mapping[str, Any]) -> str:
 def _canonicalize_method_pattern_record(record: Mapping[str, Any]) -> dict[str, Any]:
     canonical = _method_pattern_canonical_name(record)
     normalized = dict(record)
+    if record.get("research_case_based") is True:
+        normalized["method_pattern_id"] = _stable_id("METHOD", research_case_method_identity({
+            "question": record.get("name"), "historical_regime": record.get("historical_regime"),
+            "reasoning_chain": record.get("steps"), "assumptions": record.get("assumptions"),
+            "invalidation_conditions": record.get("failure_modes"), "conclusion": record.get("description"),
+        }))
+        return normalized
     if canonical:
         normalized["canonical_name"] = canonical
         normalized["method_pattern_id"] = _stable_id(
@@ -34549,7 +34256,7 @@ def _method_pattern_identity_keys(record: Mapping[str, Any]) -> list[str]:
     if method_id:
         keys.append(f"id:{method_id}")
     canonical = _method_pattern_canonical_name(record)
-    if canonical:
+    if canonical and record.get("research_case_based") is not True:
         keys.append(f"canonical:{canonical}")
     return keys
 
@@ -34843,7 +34550,7 @@ def _extract_for_markdown(
     macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[dict[str, list[dict[str, Any]]], str, str | None, list[str], int, bool]:
     chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
-    truncated = len("".join(chunks)) < len(markdown_text.strip())
+    truncated = "".join("".join(chunks).split()) != "".join(markdown_text.split())
     report_id = _report_id(row)
     publish_date = str(row.get("publish_date") or "")
     report_context = _build_report_context(
@@ -34903,7 +34610,6 @@ def _extract_for_markdown(
             model=model,
         )
         methods = _normalize_method_patterns(
-            payload,
             footprints,
             run_id=run_id,
             model=model,
@@ -34964,27 +34670,33 @@ def run_report_intelligence_derived_refresh(
     root_path = Path(cfg.root).resolve()
     registry_dir = resolve_report_intelligence_registry_dir(root_path, cfg.registry_dir)
     run_id = "RIR-DERIVED-" + _utc_now().replace(":", "").replace("-", "")
-    missing_private_inputs = _missing_report_intelligence_private_inputs(
-        root_path=root_path,
-        registry_dir=registry_dir,
-    )
-    existing_public_outputs = _report_intelligence_paths_exist(
-        root_path=root_path,
-        registry_dir=registry_dir,
-        paths=REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
-    )
-    if missing_private_inputs and existing_public_outputs:
-        blockers = (
-            "private report-intelligence inputs missing; refusing to overwrite "
-            "committed public derived artifacts: "
-            + ", ".join(missing_private_inputs)
-        )
-        return _blocked_report_intelligence_derived_refresh_result(
+    if cfg.derived_scope == "full":
+        legacy = _unmigrated_tool_gap_review_blockers(registry_dir)
+        if legacy:
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path, run_id=run_id, refresh_scope=cfg.derived_scope, blockers=legacy,
+            )
+        missing_private_inputs = _missing_report_intelligence_private_inputs(
             root_path=root_path,
             registry_dir=registry_dir,
-            run_id=run_id,
-            blockers=(blockers,),
         )
+        existing_public_outputs = _report_intelligence_paths_exist(
+            root_path=root_path,
+            registry_dir=registry_dir,
+            paths=REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
+        )
+        if missing_private_inputs and existing_public_outputs:
+            blockers = (
+                "private report-intelligence inputs missing; refusing to overwrite "
+                "committed public derived artifacts: "
+                + ", ".join(missing_private_inputs)
+            )
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path,
+                run_id=run_id,
+                refresh_scope=cfg.derived_scope,
+                blockers=(blockers,),
+            )
     blockers: list[str] = []
     macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     metadata_rows = _read_registry_jsonl(
@@ -35003,6 +34715,30 @@ def run_report_intelligence_derived_refresh(
         macro_regime_calendar_rows=macro_regime_calendar_rows,
         root_path=root_path,
     )
+    if cfg.derived_scope == "basic":
+        if blockers:
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path,
+                run_id=run_id,
+                blockers=blockers,
+                refresh_scope=cfg.derived_scope,
+            )
+        return _refresh_report_intelligence_derived_artifacts(
+            cfg=cfg,
+            root_path=root_path,
+            registry_dir=registry_dir,
+            run_id=run_id,
+            metadata_rows=metadata_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=[],
+            metric_rows=[],
+            method_rows=[],
+            tool_gap_rows=[],
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+            blockers=blockers,
+            selected_reports=len(metadata_rows),
+            status_rows=None,
+        )
     footprint_rows = _read_registry_jsonl(
         registry_dir / "analytical_footprints.jsonl",
         label="analytical_footprints",
@@ -35025,20 +34761,15 @@ def run_report_intelligence_derived_refresh(
         label="method_patterns",
         blockers=blockers,
     )
-    _append_unique_method_patterns(
-        method_rows,
-        _normalize_method_patterns(
-            {},
-            footprint_rows,
-            run_id=run_id,
-            model="derived_refresh",
-        ),
+    case_methods = _normalize_method_patterns(
+        footprint_rows, run_id=run_id, model="derived_refresh",
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_dir / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
+    _append_unique_method_patterns(method_rows, case_methods)
+    case_data = {row["method_pattern_id"]: row["required_current_data"] for row in case_methods}
+    for method in method_rows:
+        if method.get("research_case_based") is True and method["method_pattern_id"] in case_data:
+            method["required_current_data"] = case_data[method["method_pattern_id"]]
+    tool_gap_rows = _read_tool_gap_facts(registry_dir / "tool_gaps.jsonl", blockers=blockers)
     _append_unique_records(
         metric_rows,
         _normalize_metric_candidates(
@@ -35062,6 +34793,99 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
     )
 
+    return _refresh_report_intelligence_derived_artifacts(
+        cfg=cfg,
+        root_path=root_path,
+        registry_dir=registry_dir,
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        method_rows=method_rows,
+        tool_gap_rows=tool_gap_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        blockers=blockers,
+        selected_reports=len(metadata_rows),
+        status_rows=None,
+    )
+
+
+def _refresh_report_intelligence_derived_artifacts(
+    *,
+    cfg: ReportIntelligenceConfig,
+    root_path: Path,
+    registry_dir: Path,
+    run_id: str,
+    metadata_rows: list[dict[str, Any]],
+    forecast_rows: list[dict[str, Any]],
+    footprint_rows: list[dict[str, Any]],
+    metric_rows: list[dict[str, Any]],
+    method_rows: list[dict[str, Any]],
+    tool_gap_rows: list[dict[str, Any]],
+    macro_regime_calendar_rows: list[dict[str, Any]],
+    blockers: list[str],
+    selected_reports: int,
+    status_rows: list[dict[str, Any]] | None,
+) -> ReportIntelligenceRunResult:
+    """Rebuild shared artifacts; absent status rows preserve extraction/review files."""
+    if cfg.derived_scope == "basic":
+        rows_by_name = {"forecast_claims": forecast_rows}
+        if status_rows is not None:
+            rows_by_name.update(
+                {
+                    "report_metadata": metadata_rows,
+                    "analytical_footprints": footprint_rows,
+                    "metric_candidates": metric_rows,
+                    "method_patterns": method_rows,
+                    "tool_gaps": tool_gap_rows,
+                    "processing_status": status_rows,
+                }
+            )
+        outputs = {
+            name: _relative_or_absolute(
+                Path(_write_jsonl(registry_dir / f"{name}.jsonl", rows)["path"]),
+                root_path,
+            )
+            for name, rows in rows_by_name.items()
+        }
+        if status_rows is not None:
+            fingerprint = write_report_fingerprint_manifest(registry_dir)
+            outputs["report_fingerprint_manifest"] = _relative_or_absolute(
+                Path(fingerprint["path"]),
+                root_path,
+            )
+        return ReportIntelligenceRunResult(
+            run_id=run_id,
+            root=str(root_path),
+            selected_reports=selected_reports,
+            metadata_rows=len(metadata_rows),
+            forecast_claim_rows=len(forecast_rows),
+            analytical_footprint_rows=len(footprint_rows)
+            if status_rows is not None
+            else None,
+            metric_candidate_rows=len(metric_rows) if status_rows is not None else None,
+            method_pattern_rows=len(method_rows) if status_rows is not None else None,
+            tool_gap_rows=len(tool_gap_rows) if status_rows is not None else None,
+            pdf_ready_count=sum(
+                _ensure_mapping(row.get("pdf")).get("status")
+                in {"cached", "downloaded"}
+                for row in metadata_rows
+            ),
+            markdown_ready_count=sum(
+                _ensure_mapping(row.get("markdown")).get("status")
+                in {"cached", "converted", "converted_text_source"}
+                for row in metadata_rows
+            ),
+            llm_processed_reports=sum(
+                _ensure_mapping(row.get("extraction")).get("llm_status") == "processed"
+                for row in metadata_rows
+            ),
+            blocker_count=len(blockers),
+            blockers=tuple(blockers),
+            outputs=outputs,
+            refresh_scope=cfg.derived_scope,
+        )
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
     macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     markdown_coverage_summary = build_markdown_coverage_summary(
@@ -35148,6 +34972,7 @@ def run_report_intelligence_derived_refresh(
         outcome_label_rows=outcome_label_rows,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
     )
+    tool_gap_rows = backfill_stock_market_cap_tool_gap(tool_gap_rows, stock_context_snapshot_rows)
     industry_context_snapshot_rows = build_industry_context_snapshots(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -35176,15 +35001,9 @@ def run_report_intelligence_derived_refresh(
         outcome_label_rows=outcome_label_rows,
     )
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
-    data_acquisition_proposal_rows = build_data_acquisition_proposals(
-        tool_gap_rows,
-        stock_context_snapshot_rows=stock_context_snapshot_rows,
-    )
-    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
     shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
@@ -35200,7 +35019,6 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
             analysis_recipe_rows=analysis_recipe_rows,
             outcome_label_rows=outcome_label_rows,
@@ -35222,7 +35040,6 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -35259,8 +35076,6 @@ def run_report_intelligence_derived_refresh(
         method_performance_profile_rows=method_performance_profile_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         weighted_research_context_rows=weighted_research_context_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
@@ -35317,8 +35132,6 @@ def run_report_intelligence_derived_refresh(
         metric_rows=metric_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
     )
@@ -35334,7 +35147,7 @@ def run_report_intelligence_derived_refresh(
     footprint_review_outputs = write_analytical_footprint_review_artifacts(
         registry_dir,
         footprint_rows,
-        preserve_existing_summary=True,
+        preserve_existing_summary=status_rows is None,
     )
     footprint_review_load_blockers: list[str] = []
     footprint_review_summary = _read_registry_json(
@@ -35363,8 +35176,6 @@ def run_report_intelligence_derived_refresh(
             method_rows=method_rows,
             tool_coverage_match_rows=tool_coverage_match_rows,
             tool_gap_rows=tool_gap_rows,
-            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
             forecast_ledger_rows=forecast_ledger_rows,
             outcome_label_rows=outcome_label_rows,
             outcome_labeling_readiness=outcome_labeling_readiness,
@@ -35430,7 +35241,6 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -35476,7 +35286,11 @@ def run_report_intelligence_derived_refresh(
                 feature_flag_payload,
             )["path"]
         ),
-        "report_metadata": str(registry_dir / "report_metadata.jsonl"),
+        "report_metadata": str(
+            registry_dir / "report_metadata.jsonl"
+            if status_rows is None
+            else _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
+        ),
         "forecast_claims": str(
             _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
         ),
@@ -35587,18 +35401,6 @@ def run_report_intelligence_derived_refresh(
             _write_jsonl(
                 registry_dir / "tool_coverage_matches.jsonl",
                 tool_coverage_match_rows,
-            )["path"]
-        ),
-        "data_acquisition_proposals": str(
-            _write_jsonl(
-                registry_dir / "data_acquisition_proposals.jsonl",
-                data_acquisition_proposal_rows,
-            )["path"]
-        ),
-        "tool_design_proposals": str(
-            _write_jsonl(
-                registry_dir / "tool_design_proposals.jsonl",
-                tool_design_proposal_rows,
             )["path"]
         ),
         "analysis_recipes": str(
@@ -35721,7 +35523,11 @@ def run_report_intelligence_derived_refresh(
                 patch_v1_5_coverage_report,
             )["path"]
         ),
-        "status": str(registry_dir / "processing_status.jsonl"),
+        "status": str(
+            registry_dir / "processing_status.jsonl"
+            if status_rows is None
+            else _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
+        ),
     }
     fingerprint = write_report_fingerprint_manifest(registry_dir)
     outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
@@ -35732,9 +35538,10 @@ def run_report_intelligence_derived_refresh(
     summary_path = registry_dir / "extraction_report.json"
     outputs["summary"] = _relative_or_absolute(summary_path, root_path)
     summary = ReportIntelligenceRunResult(
+        refresh_scope=cfg.derived_scope,
         run_id=run_id,
         root=str(root_path),
-        selected_reports=len(metadata_rows),
+        selected_reports=selected_reports,
         metadata_rows=len(metadata_rows),
         forecast_claim_rows=len(forecast_rows),
         analytical_footprint_rows=len(footprint_rows),
@@ -35822,8 +35629,6 @@ def run_report_intelligence_derived_refresh(
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
         tool_coverage_match_rows=len(tool_coverage_match_rows),
-        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
-        tool_design_proposal_rows=len(tool_design_proposal_rows),
         analysis_recipe_rows=len(analysis_recipe_rows),
         prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
         weighted_research_context_rows=len(weighted_research_context_rows),
@@ -35876,6 +35681,11 @@ def run_report_intelligence_refresh(
         else root_path / cfg.cache_dir
     )
     run_id = "RIR-" + _utc_now().replace(":", "").replace("-", "")
+    legacy = _unmigrated_tool_gap_review_blockers(registry_dir)
+    if cfg.derived_scope == "full" and legacy:
+        return _blocked_report_intelligence_derived_refresh_result(
+            root_path=root_path, run_id=run_id, refresh_scope=cfg.derived_scope, blockers=legacy,
+        )
     processed_source_ids, processed_source_blockers = _processed_source_ids_from_registry_dirs(
         root_path,
         cfg.exclude_processed_registry_dirs,
@@ -35973,6 +35783,8 @@ def run_report_intelligence_refresh(
             api_key=cfg.vllm_api_key,
             timeout_seconds=cfg.vllm_timeout_seconds,
             max_output_tokens=cfg.max_llm_output_tokens,
+            backend=cfg.llm_backend,
+            review_notes=cfg.review_notes,
         )
     )
 
@@ -36292,798 +36104,22 @@ def run_report_intelligence_refresh(
         tool_gap_rows,
         run_id=run_id,
     )
-    forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
-    macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
-    markdown_coverage_summary = build_markdown_coverage_summary(
-        run_id=run_id,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-    )
-    industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
-    industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
+    summary = _refresh_report_intelligence_derived_artifacts(
+        cfg=cfg,
         root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        mapping_rows=industry_etf_proxy_map_rows,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_series_rows = load_scorecard_macro_series_rows(
-        root_path=root_path,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        scorecard_db_path=cfg.scorecard_db_path,
-    )
-    macro_market_series_catalog_rows = build_macro_market_series_catalog(
-        macro_series_rows
-    )
-    outcome_label_rows = build_outcome_label_records(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        qlib_stock_dir=cfg.qlib_stock_dir,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        metadata_rows=metadata_rows,
-        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        macro_series_rows=macro_series_rows,
-    )
-    industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        mapping_rows=industry_etf_proxy_map_rows,
-        pit_availability=industry_etf_proxy_pit_availability,
-    )
-    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
-        industry_etf_proxy_pit_availability,
-        industry_etf_proxy_readiness,
-    )
-    stock_price_proxy_readiness = build_stock_price_proxy_readiness(
-        root_path=root_path,
-        qlib_stock_dir=cfg.qlib_stock_dir,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_series_directional_readiness = build_macro_series_directional_readiness(
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_series_rows=macro_series_rows,
-    )
-    macro_curve_directional_readiness = build_macro_curve_directional_readiness(
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_series_rows=macro_series_rows,
-    )
-    outcome_labeling_readiness = build_outcome_labeling_readiness_report(
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
-        stock_price_proxy_readiness=stock_price_proxy_readiness,
-        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
-        macro_series_directional_readiness=macro_series_directional_readiness,
-        macro_curve_directional_readiness=macro_curve_directional_readiness,
-        macro_regime_calendar_rows=macro_regime_calendar_rows,
-    )
-    stock_context_snapshot_rows = build_stock_context_snapshots(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        stock_price_proxy_readiness=stock_price_proxy_readiness,
-    )
-    industry_context_snapshot_rows = build_industry_context_snapshots(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
-        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-    )
-    source_performance_profile_rows = build_source_performance_profiles(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
-        macro_leg_forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    macro_regime_snapshot_rows = build_macro_regime_snapshots(macro_leg_forecast_rows)
-    macro_agent_research_prior_rows = build_macro_agent_research_priors(
-        macro_leg_forecast_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-    )
-    method_performance_profile_rows = build_method_performance_profiles(
-        method_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
-    data_acquisition_proposal_rows = build_data_acquisition_proposals(
-        tool_gap_rows,
-        stock_context_snapshot_rows=stock_context_snapshot_rows,
-    )
-    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
-    analysis_recipe_rows = build_analysis_recipes(method_rows)
-    shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
-        tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-    )
-    recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
-        run_id=run_id,
-        analysis_recipe_rows=analysis_recipe_rows,
-        outcome_label_rows=outcome_label_rows,
-        method_performance_profile_rows=method_performance_profile_rows,
-        forecast_rows=forecast_rows,
-        footprint_rows=footprint_rows,
-        method_rows=method_rows,
-        shadow_implemented_requested_tools=shadow_implemented_requested_tools,
-    )
-    recipe_paper_trading_summary = build_recipe_paper_trading_summary(
-        run_id=run_id,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
-            analysis_recipe_rows=analysis_recipe_rows,
-            outcome_label_rows=outcome_label_rows,
-            forecast_rows=forecast_rows,
-            footprint_rows=footprint_rows,
-            method_rows=method_rows,
-        ),
-    )
-    confidence_impact_observation_rows = build_confidence_impact_observations(
-        run_id=run_id,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-    )
-    confidence_impact_monitor = build_confidence_impact_monitor(
-        run_id=run_id,
-        confidence_observation_rows=confidence_impact_observation_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-    )
-    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
-        run_id=run_id,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        confidence_impact_observation_rows=confidence_impact_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-    )
-    weighted_research_context_rows = build_weighted_research_contexts(
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        footprint_rows=footprint_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        tool_gap_rows=tool_gap_rows,
-        metadata_rows=metadata_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-    )
-    runtime_tool_gap_observation_rows = build_runtime_tool_gap_observations(
-        run_id=run_id,
-        weighted_research_context_rows=weighted_research_context_rows,
-        tool_gap_rows=tool_gap_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-    )
-    monitoring_report = build_report_intelligence_monitoring_report(
-        run_id=run_id,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-        method_performance_profile_rows=method_performance_profile_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-    )
-    feature_flag_payload = _report_intelligence_feature_flag_payload()
-    runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        method_rows=method_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-        tool_gap_rows=tool_gap_rows,
-    )
-    pit_leakage_audit = build_report_intelligence_pit_leakage_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        outcome_label_rows=outcome_label_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-    )
-    extraction_provenance_audit = build_report_intelligence_extraction_provenance_audit(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        footprint_rows=footprint_rows,
-        metric_rows=metric_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        outcome_label_rows=outcome_label_rows,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-    )
-    statistical_robustness_audit = (
-        build_report_intelligence_statistical_robustness_audit(
-            run_id=run_id,
-            feature_flags=feature_flag_payload,
-            forecast_ledger_rows=forecast_ledger_rows,
-            outcome_label_rows=outcome_label_rows,
-            source_performance_profile_rows=source_performance_profile_rows,
-            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-            method_performance_profile_rows=method_performance_profile_rows,
-            weighted_research_context_rows=weighted_research_context_rows,
-        )
-    )
-    tool_feasibility_audit = build_report_intelligence_tool_feasibility_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        metric_rows=metric_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-    )
-    recipe_validation_audit = build_report_intelligence_recipe_validation_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        method_rows=method_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        tool_feasibility_audit=tool_feasibility_audit,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-    )
-    footprint_review_outputs = write_analytical_footprint_review_artifacts(
-        registry_dir,
-        footprint_rows,
-    )
-    footprint_review_load_blockers: list[str] = []
-    footprint_review_summary = _read_registry_json(
-        registry_dir / "analytical_footprint_review_summary.json",
-        label="analytical_footprint_review_summary",
-        blockers=footprint_review_load_blockers,
-    )
-    footprint_error_taxonomy = _read_registry_json(
-        registry_dir / "analytical_footprint_error_taxonomy.json",
-        label="analytical_footprint_error_taxonomy",
-        blockers=footprint_review_load_blockers,
-    )
-    gold_review_summary = _read_registry_json(
-        registry_dir.parent / "gold_sets/tushare_research_reports.review_summary.json",
-        label="gold_review_summary",
-        blockers=footprint_review_load_blockers,
-    )
-    patch_v1_5_coverage_report = (
-        build_report_intelligence_patch_v1_5_coverage_report(
-            run_id=run_id,
-            feature_flags=feature_flag_payload,
-            metadata_rows=metadata_rows,
-            forecast_rows=forecast_rows,
-            footprint_rows=footprint_rows,
-            metric_rows=metric_rows,
-            method_rows=method_rows,
-            tool_coverage_match_rows=tool_coverage_match_rows,
-            tool_gap_rows=tool_gap_rows,
-            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
-            forecast_ledger_rows=forecast_ledger_rows,
-            outcome_label_rows=outcome_label_rows,
-            outcome_labeling_readiness=outcome_labeling_readiness,
-            source_performance_profile_rows=source_performance_profile_rows,
-            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-            method_performance_profile_rows=method_performance_profile_rows,
-            analysis_recipe_rows=analysis_recipe_rows,
-            weighted_research_context_rows=weighted_research_context_rows,
-            runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-            monitoring_report=monitoring_report,
-            runtime_safety_audit=runtime_safety_audit,
-            pit_leakage_audit=pit_leakage_audit,
-            extraction_provenance_audit=extraction_provenance_audit,
-            statistical_robustness_audit=statistical_robustness_audit,
-            tool_feasibility_audit=tool_feasibility_audit,
-            recipe_validation_audit=recipe_validation_audit,
-            footprint_review_summary=footprint_review_summary,
-            footprint_error_taxonomy=footprint_error_taxonomy,
-            gold_review_summary=gold_review_summary,
-            recipe_paper_trading_summary=recipe_paper_trading_summary,
-        )
-    )
-    schema_validation_report = _read_schema_validation_report(root_path)
-    evolution_history = _prepare_evolution_refresh_history(
         registry_dir=registry_dir,
         run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        schema_validation_report=schema_validation_report,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-    )
-    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=schema_validation_report,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
-        agent_context_forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        monitor_refresh_history_rows=evolution_history["monitor_previous"],
-        audit_refresh_history_rows=evolution_history["audit_previous"],
-        gap_distribution_history_rows=evolution_history["gap_previous"],
-    )
-    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
-        run_id=run_id,
-        outcome_labeling_readiness=outcome_labeling_readiness,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        method_rows=method_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        confidence_impact_observation_rows=confidence_impact_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        evolution_readiness_gate=evolution_readiness_gate,
-        gold_review_summary=gold_review_summary,
-        footprint_review_summary=footprint_review_summary,
-    )
-    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=schema_validation_report,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
-        agent_context_forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        monitor_refresh_history_rows=evolution_history["monitor_previous"],
-        audit_refresh_history_rows=evolution_history["audit_previous"],
-        gap_distribution_history_rows=evolution_history["gap_previous"],
-    )
-
-    outputs = {
-        "feature_flags": str(
-            _write_json(
-                registry_dir / "feature_flags.json",
-                feature_flag_payload,
-            )["path"]
-        ),
-        "report_metadata": str(
-            _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
-        ),
-        "forecast_claims": str(
-            _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
-        ),
-        "analytical_footprints": str(
-            _write_jsonl(
-                registry_dir / "analytical_footprints.jsonl",
-                footprint_rows,
-            )["path"]
-        ),
-        **footprint_review_outputs,
-        "metric_candidates": str(
-            _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
-        ),
-        "method_patterns": str(
-            _write_jsonl(registry_dir / "method_patterns.jsonl", method_rows)["path"]
-        ),
-        "tool_gaps": str(
-            _write_jsonl(registry_dir / "tool_gaps.jsonl", tool_gap_rows)["path"]
-        ),
-        "report_forecast_ledger": str(
-            _write_jsonl(
-                registry_dir / "report_forecast_ledger.jsonl",
-                forecast_ledger_rows,
-            )["path"]
-        ),
-        "markdown_coverage_summary": str(
-            _write_json(
-                registry_dir / "markdown_coverage_summary.json",
-                markdown_coverage_summary,
-            )["path"]
-        ),
-        "industry_etf_proxy_map": str(
-            _write_jsonl(
-                registry_dir / "industry_etf_proxy_map.jsonl",
-                industry_etf_proxy_map_rows,
-            )["path"]
-        ),
-        "industry_etf_proxy_pit_availability": str(
-            _write_json(
-                registry_dir / "industry_etf_proxy_pit_availability.json",
-                _public_summary_payload(industry_etf_proxy_pit_availability),
-            )["path"]
-        ),
-        "outcome_labeling_readiness": str(
-            _write_json(
-                registry_dir / "outcome_labeling_readiness.json",
-                _public_summary_payload(outcome_labeling_readiness),
-            )["path"]
-        ),
-        "report_outcome_labels": str(
-            _write_jsonl(
-                registry_dir / "report_outcome_labels.jsonl",
-                outcome_label_rows,
-            )["path"]
-        ),
-        "source_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "source_performance_profiles.jsonl",
-                source_performance_profile_rows,
-            )["path"]
-        ),
-        "viewpoint_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "viewpoint_performance_profiles.jsonl",
-                viewpoint_performance_profile_rows,
-            )["path"]
-        ),
-        "macro_market_series_catalog": str(
-            _write_jsonl(
-                registry_dir / "macro_market_series_catalog.jsonl",
-                macro_market_series_catalog_rows,
-            )["path"]
-        ),
-        "stock_context_snapshots": str(
-            _write_jsonl(
-                registry_dir / "stock_context_snapshots.jsonl",
-                stock_context_snapshot_rows,
-            )["path"]
-        ),
-        "industry_context_snapshots": str(
-            _write_jsonl(
-                registry_dir / "industry_context_snapshots.jsonl",
-                industry_context_snapshot_rows,
-            )["path"]
-        ),
-        "macro_regime_snapshots": str(
-            _write_jsonl(
-                registry_dir / "macro_regime_snapshots.jsonl",
-                macro_regime_snapshot_rows,
-            )["path"]
-        ),
-        "macro_agent_research_priors": str(
-            _write_jsonl(
-                registry_dir / "macro_agent_research_priors.jsonl",
-                macro_agent_research_prior_rows,
-            )["path"]
-        ),
-        "method_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "method_performance_profiles.jsonl",
-                method_performance_profile_rows,
-            )["path"]
-        ),
-        "tool_coverage_matches": str(
-            _write_jsonl(
-                registry_dir / "tool_coverage_matches.jsonl",
-                tool_coverage_match_rows,
-            )["path"]
-        ),
-        "data_acquisition_proposals": str(
-            _write_jsonl(
-                registry_dir / "data_acquisition_proposals.jsonl",
-                data_acquisition_proposal_rows,
-            )["path"]
-        ),
-        "tool_design_proposals": str(
-            _write_jsonl(
-                registry_dir / "tool_design_proposals.jsonl",
-                tool_design_proposal_rows,
-            )["path"]
-        ),
-        "analysis_recipes": str(
-            _write_jsonl(
-                registry_dir / "analysis_recipes.jsonl",
-                analysis_recipe_rows,
-            )["path"]
-        ),
-        "recipe_paper_trading_runs": str(
-            _write_jsonl(
-                registry_dir / "recipe_paper_trading_runs.jsonl",
-                recipe_paper_trading_run_rows,
-            )["path"]
-        ),
-        "recipe_paper_trading_summary": str(
-            _write_json(
-                registry_dir / "recipe_paper_trading_summary.json",
-                _public_summary_payload(recipe_paper_trading_summary),
-            )["path"]
-        ),
-        "confidence_impact_observations": str(
-            _write_jsonl(
-                registry_dir / "confidence_impact_observations.jsonl",
-                confidence_impact_observation_rows,
-            )["path"]
-        ),
-        "confidence_impact_monitor": str(
-            _write_json(
-                registry_dir / "confidence_impact_monitor.json",
-                _public_summary_payload(confidence_impact_monitor),
-            )["path"]
-        ),
-        "monitor_refresh_history": str(
-            _write_jsonl(
-                registry_dir / "monitor_refresh_history.jsonl",
-                evolution_history["monitor_updated"],
-            )["path"]
-        ),
-        "audit_refresh_history": str(
-            _write_jsonl(
-                registry_dir / "audit_refresh_history.jsonl",
-                evolution_history["audit_updated"],
-            )["path"]
-        ),
-        "gap_distribution_history": str(
-            _write_jsonl(
-                registry_dir / "gap_distribution_history.jsonl",
-                evolution_history["gap_updated"],
-            )["path"]
-        ),
-        "prompt_mutation_candidates": str(
-            _write_jsonl(
-                registry_dir / "prompt_mutation_candidates.jsonl",
-                prompt_mutation_candidate_rows,
-            )["path"]
-        ),
-        "evolution_readiness_gate": str(
-            _write_json(
-                registry_dir / "evolution_readiness_gate.json",
-                evolution_readiness_gate,
-            )["path"]
-        ),
-        "weighted_research_contexts": str(
-            _write_jsonl(
-                registry_dir / "weighted_research_contexts.jsonl",
-                weighted_research_context_rows,
-            )["path"]
-        ),
-        "runtime_tool_gap_observations": str(
-            _write_jsonl(
-                registry_dir / "runtime_tool_gap_observations.jsonl",
-                runtime_tool_gap_observation_rows,
-            )["path"]
-        ),
-        "monitoring_report": str(
-            _write_json(
-                registry_dir / "monitoring_report.json",
-                monitoring_report,
-            )["path"]
-        ),
-        "runtime_safety_audit": str(
-            _write_json(
-                registry_dir / "runtime_safety_audit.json",
-                runtime_safety_audit,
-            )["path"]
-        ),
-        "pit_leakage_audit": str(
-            _write_json(
-                registry_dir / "pit_leakage_audit.json",
-                pit_leakage_audit,
-            )["path"]
-        ),
-        "extraction_provenance_audit": str(
-            _write_json(
-                registry_dir / "extraction_provenance_audit.json",
-                extraction_provenance_audit,
-            )["path"]
-        ),
-        "statistical_robustness_audit": str(
-            _write_json(
-                registry_dir / "statistical_robustness_audit.json",
-                statistical_robustness_audit,
-            )["path"]
-        ),
-        "tool_feasibility_audit": str(
-            _write_json(
-                registry_dir / "tool_feasibility_audit.json",
-                tool_feasibility_audit,
-            )["path"]
-        ),
-        "recipe_validation_audit": str(
-            _write_json(
-                registry_dir / "recipe_validation_audit.json",
-                recipe_validation_audit,
-            )["path"]
-        ),
-        "patch_v1_5_coverage_report": str(
-            _write_json(
-                registry_dir / "patch_v1_5_coverage_report.json",
-                patch_v1_5_coverage_report,
-            )["path"]
-        ),
-        "status": str(
-            _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
-        ),
-    }
-    fingerprint = write_report_fingerprint_manifest(registry_dir)
-    outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
-    outputs = {
-        key: _relative_or_absolute(Path(path), root_path)
-        for key, path in outputs.items()
-    }
-    summary_path = registry_dir / "extraction_report.json"
-    outputs["summary"] = _relative_or_absolute(summary_path, root_path)
-    summary = ReportIntelligenceRunResult(
-        run_id=run_id,
-        root=str(root_path),
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        blockers=blockers,
         selected_reports=len(rows),
-        metadata_rows=len(metadata_rows),
-        forecast_claim_rows=len(forecast_rows),
-        analytical_footprint_rows=len(footprint_rows),
-        metric_candidate_rows=len(metric_rows),
-        method_pattern_rows=len(method_rows),
-        tool_gap_rows=len(tool_gap_rows),
-        forecast_ledger_rows=len(forecast_ledger_rows),
-        outcome_label_rows=len(outcome_label_rows),
-        industry_etf_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "industry_etf_proxy"
-        ),
-        industry_etf_proxy_eligible_claim_rows=int(
-            industry_etf_proxy_readiness["eligible_claim_count"]
-        ),
-        industry_etf_proxy_labelable_window_rows=int(
-            industry_etf_proxy_readiness["labelable_window_count"]
-        ),
-        industry_etf_proxy_pending_window_rows=int(
-            industry_etf_proxy_readiness["pending_future_window_count"]
-        ),
-        stock_price_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "stock_price_proxy"
-        ),
-        stock_price_proxy_eligible_claim_rows=int(
-            stock_price_proxy_readiness["eligible_claim_count"]
-        ),
-        stock_price_proxy_labelable_window_rows=int(
-            stock_price_proxy_readiness["labelable_window_count"]
-        ),
-        stock_price_proxy_pending_window_rows=int(
-            stock_price_proxy_readiness["pending_future_window_count"]
-        ),
-        macro_asset_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_asset_proxy"
-        ),
-        macro_asset_proxy_eligible_claim_rows=int(
-            macro_asset_proxy_readiness["eligible_claim_count"]
-        ),
-        macro_asset_proxy_labelable_window_rows=int(
-            macro_asset_proxy_readiness["labelable_window_count"]
-        ),
-        macro_asset_proxy_pending_window_rows=int(
-            macro_asset_proxy_readiness["pending_future_window_count"]
-        ),
-        macro_series_directional_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_series_directional"
-        ),
-        macro_series_directional_eligible_claim_rows=int(
-            macro_series_directional_readiness["eligible_claim_count"]
-        ),
-        macro_series_directional_labelable_window_rows=int(
-            macro_series_directional_readiness["labelable_window_count"]
-        ),
-        macro_series_directional_pending_window_rows=int(
-            macro_series_directional_readiness["pending_future_window_count"]
-        ),
-        macro_curve_directional_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_curve_directional"
-        ),
-        macro_curve_directional_eligible_claim_rows=int(
-            macro_curve_directional_readiness["eligible_claim_count"]
-        ),
-        macro_curve_directional_labelable_window_rows=int(
-            macro_curve_directional_readiness["labelable_window_count"]
-        ),
-        macro_curve_directional_pending_window_rows=int(
-            macro_curve_directional_readiness["pending_future_window_count"]
-        ),
-        source_performance_profile_rows=len(source_performance_profile_rows),
-        viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
-        macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
-        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
-        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
-        macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
-        macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
-        method_performance_profile_rows=len(method_performance_profile_rows),
-        tool_coverage_match_rows=len(tool_coverage_match_rows),
-        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
-        tool_design_proposal_rows=len(tool_design_proposal_rows),
-        analysis_recipe_rows=len(analysis_recipe_rows),
-        prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
-        weighted_research_context_rows=len(weighted_research_context_rows),
-        runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
-        outcome_labeling_ready_count=int(
-            outcome_labeling_readiness["ready_for_outcome_labeling_count"]
-        ),
-        outcome_labeling_blocked_count=int(outcome_labeling_readiness["blocked_count"]),
-        pdf_ready_count=sum(
-            1
-            for row in metadata_rows
-            if row["pdf"]["status"] in {"cached", "downloaded"}
-        ),
-        markdown_ready_count=sum(
-            1
-            for row in metadata_rows
-            if row["markdown"]["status"] in {"cached", "converted", "converted_text_source"}
-        ),
-        llm_processed_reports=sum(
-            1
-            for row in metadata_rows
-            if row["extraction"]["llm_status"] == "processed"
-        ),
-        blocker_count=len(blockers),
-        blockers=tuple(blockers),
-        outputs=outputs,
+        status_rows=status_rows,
     )
-    summary_payload = asdict(summary)
-    summary_payload["root"] = "<repo_root>"
-    _write_json(summary_path, summary_payload)
     _emit_report_intelligence_progress(
         cfg,
         event="summary",

@@ -18,7 +18,9 @@
     "target_entity_candidates": {"type": "array", "items": {"type": "string"}},
     "license_class": {"type": "string", "minLength": 1},
     "storage_policy": {"type": "string", "minLength": 1},
-    "extractor": {"type": "object"}
+    "extractor": {"type": "object"},
+    "research_case": {"type": "object", "required": ["question", "historical_regime", "reasoning_chain", "evidence", "assumptions", "invalidation_conditions", "conclusion"], "properties": {"question": {"type": "string", "minLength": 1}, "historical_regime": {"type": "string"}, "conclusion": {"type": "string"}, "reasoning_chain": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1}, "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}, "assumptions": {"type": "array", "items": {"type": "string", "minLength": 1}}, "invalidation_conditions": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "additionalProperties": false},
+    "research_case_origin": {"enum": ["source_extraction", "legacy_structured_pattern"]}
   },
   "additionalProperties": true
 }

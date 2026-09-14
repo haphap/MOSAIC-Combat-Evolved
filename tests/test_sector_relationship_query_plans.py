@@ -101,6 +101,10 @@ def test_sector_membership_plan_is_pure_bounded_and_keeps_semiconductor_tool(
             allowed_tools=tuple(sorted(_EXPECTED_TOOLS[agent_id])),
         )
         requests = _requests_for(plan, "get_sector_index_membership")
+        assert {
+            "agent_id": agent_id, "as_of": AS_OF, "layer": "sector",
+            "ticker": "", "sector": "", "max_items": 12,
+        } in _requests_for(plan, "get_rke_research_context")
         as_of_date = date.fromisoformat(AS_OF)
         previous_month_start = (as_of_date.replace(day=1) - timedelta(days=1)).replace(
             day=1
@@ -504,7 +508,7 @@ def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     rke = _requests_for(plan, "get_rke_research_context")
     assert {row["layer"] for row in rke} == {"sector"}
     assert {row["agent_id"] for row in rke} == {"semiconductor"}
-    assert {row["sector"] for row in rke if not row["ticker"]} == set(directions)
+    assert {row["sector"] for row in rke if not row["ticker"]} == {"", *directions}
     assert {row["ticker"] for row in rke if row["ticker"]} == set(tickers)
 
 

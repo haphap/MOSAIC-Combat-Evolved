@@ -171,6 +171,12 @@ export function buildRuntimeEvidenceSnapshot(input: {
       ),
     ]);
   for (const [evidenceKey, registryEntry] of Object.entries(evidenceRegistry)) {
+    // Macro RKE calls stay in the audit hash, but cannot support current claims.
+    if (
+      registryEntry.tool === "get_rke_research_context" &&
+      AGENTS_BY_LAYER.macro.some((agent) => agent === input.agent)
+    )
+      continue;
     if (registryEntry.tool) {
       const statuses = (input.toolStatuses ?? []).filter(
         (status) => status.name === registryEntry.tool,

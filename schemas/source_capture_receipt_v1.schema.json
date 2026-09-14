@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Agent source capture receipt v1",
+  "title": "Agent source capture receipts: legacy v1 and RKE v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "identity", "transport", "authority", "time", "pit", "content", "coverage", "completeness", "provenance", "receipt_hash"],
   "properties": {
-    "schema_version": {"const": "source_capture_receipt_v1"},
+    "schema_version": {"enum": ["source_capture_receipt_v1", "source_capture_receipt_v2"]},
     "identity": {
       "type": "object",
       "additionalProperties": false,
@@ -71,7 +71,7 @@
     "content": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["raw_content_hash", "normalized_row_count", "schema_hash"],
+      "required": ["raw_content_hash", "normalized_row_count"],
       "properties": {
         "raw_content_hash": {"$ref": "#/$defs/sha256"},
         "normalized_row_count": {"type": "integer", "minimum": 0},
@@ -113,6 +113,21 @@
     },
     "receipt_hash": {"$ref": "#/$defs/sha256"}
   },
+  "allOf": [{
+    "if": {"properties": {"schema_version": {"const": "source_capture_receipt_v1"}}},
+    "then": {"properties": {"content": {"required": ["schema_hash"]}}},
+    "else": {"properties": {
+      "identity": {"properties": {
+        "source_family": {"const": "local_private_rke"},
+        "route_id": {"const": "private.rke_report_intelligence"}
+      }},
+      "authority": {"properties": {
+        "provider": {"const": "local_private_rke"},
+        "parser_version": {"const": "rke_source_evidence_v3"}
+      }},
+      "content": {"not": {"required": ["schema_hash"]}}
+    }}
+  }],
   "$defs": {
     "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},

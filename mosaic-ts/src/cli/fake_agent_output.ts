@@ -259,6 +259,7 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
 }
 
 function firstSectorLongTicker(text: string): string | undefined {
+  const tickers = new Map<StandardSectorAgentId, string>();
   let sector: StandardSectorAgentId | undefined;
   for (const line of text.split("\n")) {
     if (line.startsWith("### ")) {
@@ -274,13 +275,14 @@ function firstSectorLongTicker(text: string): string | undefined {
       const output = JSON.parse(line.slice(offset + marker.length)) as Record<string, unknown>;
       const first = Array.isArray(output.long_picks) ? output.long_picks[0] : undefined;
       if (first && typeof first === "object" && typeof first.ts_code === "string") {
-        return first.ts_code;
+        tickers.set(sector, first.ts_code);
       }
     } catch {
       // Not every accepted-output line is a single JSON object.
     }
   }
-  return undefined;
+  // Match the canonical sector order used by the synthetic runtime snapshots.
+  return STANDARD_SECTOR_AGENT_IDS.map((agent) => tickers.get(agent)).find(Boolean);
 }
 
 function frozenCandidates(text: string): Array<{ candidate_ref: string; ts_code: string }> {
@@ -1012,7 +1014,7 @@ function firstEvidenceId(text: string): string | null {
       const first = catalog.evidence?.find((entry) => typeof entry.evidence_id === "string");
       if (typeof first?.evidence_id === "string") return first.evidence_id;
     } catch {
-      // Repair prompts JSON-escape the immutable original task; use the scan below.
+      // Other context may follow the catalog; scan its evidence records below.
     }
   }
   for (const match of text.matchAll(
@@ -1040,8 +1042,18 @@ function dispositionOf(output: Record<string, unknown>): unknown {
 function messageText(messages: unknown): string {
   if (!Array.isArray(messages)) return String(messages ?? "");
   return (messages as BaseMessage[])
-    .map((message) =>
-      typeof message.content === "string" ? message.content : JSON.stringify(message.content),
-    )
+    .map((message) => {
+      const content =
+        typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+      try {
+        const repair = JSON.parse(content) as { original_evidence_and_task?: unknown } | null;
+        if (typeof repair?.original_evidence_and_task === "string") {
+          return repair.original_evidence_and_task;
+        }
+      } catch {
+        // Initial task messages are plain text.
+      }
+      return content;
+    })
     .join("\n");
 }

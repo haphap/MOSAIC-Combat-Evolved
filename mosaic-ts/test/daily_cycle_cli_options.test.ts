@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
+import { registerBacktest } from "../src/cli/commands/backtest.js";
+import { registerBacktestFill } from "../src/cli/commands/backtest-fill.js";
 import {
   applyDailyCycleEnsureMode,
   assertDailyCyclePromptSourceMode,
@@ -10,11 +13,14 @@ import {
   buildProductionCycleTraceId,
   loadCurrentPositionsFixture,
   nonProductionSourceGapBypass,
+  registerDailyCycle,
   resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
   resolveDailyCycleEnsureMode,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
+import { registerRkeFixedBenchmark } from "../src/cli/commands/rke-fixed-benchmark.js";
+import { registerRkeShadowReplay } from "../src/cli/commands/rke-shadow-replay.js";
 
 function fixturePosition(ticker = "600519.SH") {
   return {
@@ -470,5 +476,21 @@ describe("daily-cycle current-position fixture options", () => {
         currentPositionsFile: "/tmp/unused-positions.json",
       }),
     ).toThrow(/choose only one current-position fixture source/);
+  });
+});
+
+describe("retired veto threshold option", () => {
+  it.each([
+    ["daily-cycle", registerDailyCycle, []],
+    ["backtest", registerBacktest, ["--start", "2026-07-17", "--end", "2026-07-17"]],
+    ["backtest-fill", registerBacktestFill, ["--start", "2026-07-17", "--end", "2026-07-17"]],
+    ["rke-fixed-benchmark", registerRkeFixedBenchmark, []],
+    ["rke-shadow-replay", registerRkeShadowReplay, ["--benchmark-run-id", "test"]],
+  ] as const)("%s rejects a threshold that cannot affect execution", (name, register, requiredArgs) => {
+    const program = new Command().exitOverride().configureOutput({ writeErr: () => {} });
+    register(program);
+    expect(() =>
+      program.parse([name, ...requiredArgs, "--veto-threshold", "0.9"], { from: "user" }),
+    ).toThrow("unknown option '--veto-threshold'");
   });
 });

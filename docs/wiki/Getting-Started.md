@@ -14,7 +14,7 @@ cd MOSAIC-Combat-Evolved
 
 # 1. Python sidecar: create .venv + install (the TS side auto-discovers <repo>/.venv/bin/python)
 uv venv
-uv pip install -e '.[data,trading,llm]'      # add ,backtest for qlib; ,ingest for data updates
+uv pip install -e '.[data,trading]'      # add ,backtest for qlib; ,ingest for data updates
 
 # 2. TypeScript front-end
 cd mosaic-ts
@@ -33,7 +33,6 @@ Dependencies are grouped so per-cycle CLI users don't pull heavy data/backtest l
 | --- | --- | --- |
 | `data` | market/macro data | pandas, numpy, tushare, akshare, yfinance, stockstats |
 | `trading` | paper trading | bcrypt |
-| `llm` | LLM providers | langchain-anthropic/openai/google, langgraph |
 | `backtest` | qlib backtest engine | pyqlib, scipy, tqdm |
 | `ingest` | data-collector subprocess deps | fire, loguru, joblib, yahooquery, beautifulsoup4 |
 | `test` | tests | pytest, pytest-asyncio |

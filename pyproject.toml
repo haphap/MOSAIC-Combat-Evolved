@@ -13,6 +13,7 @@ dependencies = [
     # Phase 0 Day 1 — bridge skeleton only needs these
     "cryptography>=46.0",
     "jsonschema>=4.23",
+    "rfc3339-validator>=0.1.4",  # jsonschema date-time validation is optional otherwise
     "langchain-core>=0.3.81",
     "python-dotenv>=1.0.0",
     # Phase 0 Day 2+ will add: pandas, requests, tushare, akshare, stockstats, ...
@@ -47,15 +48,6 @@ backtest = [
     "tqdm>=4.66",
     "scipy>=1.13",  # qlib dependency, declared explicitly for clarity
 ]
-# LLM providers (Phase 1+)
-llm = [
-    "langchain-anthropic>=0.3.15",
-    "langchain-openai>=0.3.23",
-    "langchain-google-genai>=4.0.0",
-    "langchain-experimental>=0.3.4",
-    "langgraph>=0.4.8",
-    "langgraph-checkpoint-sqlite>=2.0.0",
-]
 # Test deps
 test = [
     "pytest>=8.0",
@@ -84,7 +76,7 @@ ingest = [
     "tqdm>=4.66",
 ]
 all = [
-    "mosaic[data,trading,llm,test,backtest,ingest]",
+    "mosaic[data,trading,test,backtest,ingest]",
 ]
 
 [tool.ruff]

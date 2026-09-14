@@ -10,6 +10,8 @@ from mosaic.dataflows.bound_runtime_query_plans import (
     build_bound_runtime_query_plan,
 )
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.rke.agent_research_context import MACRO_AGENTS
+from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
 from mosaic.scorecard.l3_l4_preservation import (
     L3_TOOL_ROSTER,
     build_l3_l4_preservation_overlay,
@@ -17,6 +19,7 @@ from mosaic.scorecard.l3_l4_preservation import (
 
 
 _ACTIVE_BOUND_STAGES = {
+    *((agent_id, agent_id) for agent_id in MACRO_AGENTS),
     *((agent_id, agent_id) for agent_id in L3_TOOL_ROSTER),
     ("alpha_discovery", "alpha_discovery"),
     ("cro", "cro"),
@@ -68,7 +71,10 @@ class BoundRuntimeAdaptiveQueryPreparer:
             authorized_scope=plan["authorized_scope"],
             initial_query_requests=plan["initial_query_requests"],
             query_requests=plan["query_requests"],
-            preservation_overlay=build_l3_l4_preservation_overlay(self.root),
+            preservation_overlay=(
+                load_capability_contract_bundle(self.root)["binding_manifest"]
+                if agent_id in MACRO_AGENTS else build_l3_l4_preservation_overlay(self.root)
+            ),
             materializer=self.materializer,
             defer_materialization=True,
         )

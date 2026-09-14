@@ -20,12 +20,25 @@ function state(): DailyCycleStateType {
   } as DailyCycleStateType;
 }
 
-function runtime() {
+function runtime(includeRke = false) {
   return buildRuntimeEvidenceSnapshot({
     state: state(),
     agent: "china",
     stage: "agent_run",
     toolStatuses: [
+      ...(includeRke
+        ? [
+            {
+              name: "get_rke_research_context",
+              called: true,
+              failed: false,
+              missing: false,
+              fallback: false,
+              cache_hit: false,
+              result_fingerprint: HASH,
+            },
+          ]
+        : []),
       {
         name: "get_china_macro_snapshot",
         call_id: "call-1",
@@ -76,6 +89,19 @@ function output(evidenceId: string) {
 }
 
 describe("runtime evidence", () => {
+  it("keeps macro historical RKE calls in the audit hash without making them claim evidence", () => {
+    const snapshotOnly = runtime();
+    const withResearch = runtime(true);
+    expect(withResearch.snapshotHash).not.toBe(snapshotOnly.snapshotHash);
+    expect(withResearch.evidenceLedger).toHaveLength(1);
+    expect(withResearch.visibleCatalog).toContain("get_china_macro_snapshot");
+    expect(withResearch.visibleCatalog).not.toContain("get_rke_research_context");
+    expect(
+      validateOutputByClaimEvidence(output("get_rke_research_context"), withResearch)
+        .rawOutputAccepted,
+    ).toBe(false);
+  });
+
   it("builds deterministic evidence identity from ordinary tool status", () => {
     const first = runtime();
     const second = runtime();

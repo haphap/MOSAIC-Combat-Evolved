@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from .p0 import CONFIDENCE_COMPONENTS, ConfidenceComponents, compute_confidence_v1
+
 
 @dataclass(frozen=True)
 class EvidenceLedgerItem:
@@ -163,14 +165,6 @@ class RuntimeOutputCheckResult:
     reasons: tuple[str, ...]
 
 
-V15_CONFIDENCE_COMPONENTS = (
-    "data_confidence",
-    "research_weight_confidence",
-    "empirical_validation_confidence",
-    "method_tool_confidence",
-    "regime_match_confidence",
-)
-
 
 def _confidence_component_failures(
     components: Mapping[str, float],
@@ -181,7 +175,7 @@ def _confidence_component_failures(
         failures.append(
             "confidence_components.research_confidence is legacy; use research_weight_confidence"
         )
-    for component in V15_CONFIDENCE_COMPONENTS:
+    for component in CONFIDENCE_COMPONENTS:
         if component not in components:
             failures.append(f"confidence_components.{component} required")
             continue
@@ -307,22 +301,20 @@ def check_runtime_output(
             for inference in recommendation_inferences
             for support_id in inference.research_support_ids
         }
-        if len(confidence_components) == len(V15_CONFIDENCE_COMPONENTS):
-            effective_data_confidence = confidence_components["data_confidence"]
-            if research_support_ids and not current_data_evidence_ids:
-                effective_data_confidence = min(effective_data_confidence, 0.50)
-            max_confidence = min(
-                effective_data_confidence,
-                confidence_components["research_weight_confidence"],
-                confidence_components["empirical_validation_confidence"],
-                confidence_components["method_tool_confidence"],
-                confidence_components["regime_match_confidence"],
-                confidence_cap,
-            )
-            if recommendation.confidence > max_confidence:
-                failures.append(
-                    f"{recommendation.recommendation_id}: confidence exceeds v1.5 min-components cap"
+        if len(confidence_components) == len(CONFIDENCE_COMPONENTS):
+            try:
+                expected = compute_confidence_v1(
+                    ConfidenceComponents(**confidence_components),
+                    confidence_cap=confidence_cap,
+                    current_data_confirmed=bool(current_data_evidence_ids) or not research_support_ids,
                 )
+            except ValueError as exc:
+                failures.append(f"{recommendation.recommendation_id}: {exc}")
+            else:
+                if recommendation.confidence > expected.final_confidence:
+                    failures.append(
+                        f"{recommendation.recommendation_id}: confidence exceeds v1.5 min-components cap"
+                    )
         if research_support_ids and not current_data_evidence_ids:
             if recommendation.actionability not in {"no_trade", "monitor_only"}:
                 failures.append(

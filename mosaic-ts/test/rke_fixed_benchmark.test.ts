@@ -7,6 +7,7 @@ import {
   buildBenchmarkMetricRecord,
   buildBenchmarkQualitySummary,
   buildPromptPinsByAgent,
+  buildRkeCallSummary,
   buildRkeContextMetadataByAgent,
   collectBlockedPairedOutputRecords,
   collectPairedOutputRecords,
@@ -364,6 +365,47 @@ describe("rke-fixed-benchmark helpers", () => {
     expect(stats.errorCount).toBe(0);
     expect(stats.pairedOutputCount).toBe(1);
     expect(stats.modelConfigOutputCounts).toEqual({ local_qwen_27b: 1 });
+  });
+
+  it("separates requested, dispatched, cached and incomplete RKE calls", () => {
+    const metrics = new Map();
+    expect(buildRkeCallSummary(metrics).available_per_dispatch).toBeNull();
+    const phase = (text: string) =>
+      updateAgentMetricsFromLog(metrics, `[agent:phase] L3 munger ${text}`);
+    phase(`tools=6 names=${Array(6).fill("get_rke_research_context").join(",")}`);
+    phase("rke_dispatch");
+    phase("rke_call outcome=available cache_hit=0");
+    phase("rke_call outcome=available cache_hit=1");
+    phase("rke_dispatch");
+    phase("rke_call outcome=normal_empty cache_hit=0");
+    phase("rke_dispatch");
+    phase("rke_call outcome=authorization_rejected cache_hit=0");
+    phase("Tool 'get_rke_research_context' raised: authority missing");
+    phase("rke_call outcome=budget_not_executed cache_hit=0");
+    phase("rke_dispatch"); // A timeout before any terminal status remains incomplete.
+    expect(buildRkeCallSummary(metrics)).toMatchObject({
+      requested: 6,
+      dispatched: 4,
+      completed: 5,
+      cache_hits: 1,
+      unclassified_requests: 1,
+      outcome_counts: {
+        available: 1,
+        normal_empty: 1,
+        authorization_rejected: 1,
+        budget_not_executed: 1,
+      },
+      available_per_dispatch: 0.25,
+      context_returned_per_dispatch: 0.5,
+    });
+    // Historical text alone is not enough to reconstruct a dispatch or an outcome.
+    const historical = new Map();
+    updateAgentMetricsFromLog(
+      historical,
+      "[agent:phase] L4 cio Tool 'get_rke_research_context' raised: old failure",
+    );
+    expect(buildRkeCallSummary(historical).dispatched).toBe(0);
+    expect(buildRkeCallSummary(historical).available_per_dispatch).toBeNull();
   });
 
   it("parses agent runtime metrics from benchmark logs", () => {

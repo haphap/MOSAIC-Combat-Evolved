@@ -133,6 +133,7 @@ def test_fingerprint_manifest_is_stable_and_indexes_claims(tmp_path):
     second = build_report_fingerprint_manifest(registry)
 
     assert first == second
+    assert "author_ids_hash" not in first[0]
     assert first[0]["source_hash"] == "sha256:source"
     assert first[0]["pdf_sha256"] == "sha256:pdf"
     assert first[0]["markdown_sha256"] == "sha256:md"
@@ -159,6 +160,7 @@ def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
         registry / "processing_status.jsonl",
         [{"source_id": "SRC-1", "llm_status": "processed"}],
     )
+    _write_jsonl(registry / "retired_proposals/data_acquisition_proposals.jsonl", [{"reviewer_note": "PRIVATE_ARCHIVE"}])
     cache_file = tmp_path / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf"
     cache_file.parent.mkdir(parents=True)
     cache_file.write_bytes(b"%PDF")
@@ -174,6 +176,8 @@ def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
     assert (out / "registry/sources/tushare_research_reports.jsonl").exists()
     assert not (out / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf").exists()
     assert not stale.exists()
+    assert not (out / "registry/report_intelligence/retired_proposals").exists()
+    assert not (out / "registry/report_intelligence/data_acquisition_proposals.jsonl").exists()
     assert result["removed_files"] == [
         "registry/report_intelligence/tool_gaps.jsonl"
     ]
@@ -444,6 +448,7 @@ def test_report_intelligence_skips_cloned_fingerprint_duplicates(tmp_path):
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_download=True,
             skip_convert=True,
@@ -459,3 +464,28 @@ def test_report_intelligence_skips_cloned_fingerprint_duplicates(tmp_path):
     ]
     assert status[0]["source_id"] == "SRC-DUP"
     assert status[0]["blockers"] == ["duplicate_report_fingerprint:source_id"]
+
+
+
+def test_export_private_registries_rejects_unmigrated_reviews_without_writes(tmp_path):
+    registry = tmp_path / "registry/report_intelligence"
+    path = registry / "data_acquisition_proposals.jsonl"
+    _write_jsonl(path, [{"reviewer_note": "PRIVATE_REVIEW"}])
+    before = path.read_bytes(), path.stat().st_mtime_ns
+    result = export_private_registries(root=tmp_path, output_dir=tmp_path / "export")
+    assert not result["accepted"] and result["copied_files"] == []
+    assert "migrate tool gap reviews" in result["blockers"][0]
+    assert "PRIVATE_REVIEW" not in json.dumps(result)
+    assert not (tmp_path / "export").exists()
+    assert not (registry / "report_fingerprint_manifest.jsonl").exists()
+    assert before == (path.read_bytes(), path.stat().st_mtime_ns)
+
+
+def test_registry_dir_env_keeps_research_data_and_source_archive_together(tmp_path, monkeypatch):
+    from mosaic.rke.private_registries import _repo_path_for_registry_dir
+
+    registry_dir = tmp_path / "selected" / "registry" / "report_intelligence"
+    monkeypatch.setenv("MOSAIC_REGISTRY_DIR", str(registry_dir))
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(tmp_path / "other"))
+    assert resolve_report_intelligence_registry_dir(tmp_path) == registry_dir
+    assert _repo_path_for_registry_dir(tmp_path) == tmp_path / "selected"

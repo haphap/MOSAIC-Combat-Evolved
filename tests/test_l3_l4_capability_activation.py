@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -48,7 +49,9 @@ def _request() -> dict:
     }
 
 
-@pytest.mark.parametrize("deferred", [False, True])
+@pytest.mark.parametrize(("deferred", "authority_failure"), [
+    (False, None), (True, None), (True, "missing"), (True, "duplicate"),
+])
 @pytest.mark.parametrize(
     ("agent_id", "stage", "preservation_stage"),
     [
@@ -60,7 +63,8 @@ def _request() -> dict:
     ],
 )
 def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
-    tmp_path: Path, agent_id: str, stage: str, preservation_stage: str, deferred: bool
+    tmp_path: Path, monkeypatch, agent_id: str, stage: str, preservation_stage: str,
+    deferred: bool, authority_failure: str | None,
 ) -> None:
     now = datetime(2026, 7, 9, 9, 0, tzinfo=timezone.utc)
     frozen = FrozenAdaptiveQueryStore(
@@ -132,6 +136,30 @@ def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
         stage_materialization_finalizer=finalizer if deferred else None,
         require_knot_v2_audit_authority=deferred,
     )
+    active_calls = Mock(wraps=store._active_knot_audit_authority)
+    monkeypatch.setattr(store, "_active_knot_audit_authority", active_calls)
+    if authority_failure is not None:
+        active_authority = store._active_knot_audit_authority
+
+        def broken_authority(**kwargs):
+            authority = active_authority(**kwargs)
+            contexts = authority["tool_contexts"]
+            target = next(row for row in contexts if row["tool_id"] == "get_rke_research_context")
+            authority["tool_contexts"] = (
+                [row for row in contexts if row is not target]
+                if authority_failure == "missing" else [*contexts, target]
+            )
+            return authority
+
+        monkeypatch.setattr(store, "_active_knot_audit_authority", broken_authority)
+        with pytest.raises(ValueError, match=f"KNOT tool authority {authority_failure}: get_rke_research_context"):
+            store.prepare(
+                {**_request(), "agent_id": agent_id, "stage": stage},
+                materializer=lambda tool_id, **_kwargs: json.dumps({"tool": tool_id, "snapshot": True}),
+            )
+        with sqlite3.connect(store.db_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM capabilities").fetchone()[0] == 0
+        return
     result = store.prepare(
         {**_request(), "agent_id": agent_id, "stage": stage},
         materializer=lambda tool_id, **_kwargs: json.dumps(
@@ -139,6 +167,7 @@ def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
         ),
     )
     envelope = result["capability"]
+    assert active_calls.call_count == 1
 
     assert store.call_tool(envelope, "get_rke_research_context", {}) == prior_payload
     with pytest.raises(

@@ -144,3 +144,41 @@ def test_register_rejects_tampered_or_conflicting_receipt(tmp_path: Path) -> Non
     )
     with pytest.raises(ValueError, match="conflicting"):
         store.register(conflicting)
+
+
+def test_staged_seal_hashes_once_and_external_validation_checks_again(monkeypatch):
+    import mosaic.dataflows.staged_query_receipts as staged
+
+    descriptor = _descriptor()
+    calls = []
+    original = staged.canonical_hash
+
+    def record_hash(value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(staged, "canonical_hash", record_hash)
+    receipt = staged.seal_staged_query_source_receipt(
+        descriptor, knowledge_available_at="2026-07-17T08:00:00+08:00",
+        captured_at="2026-07-17T08:00:00+08:00",
+    )
+    assert len(calls) == 1
+    assert staged.validate_staged_query_source_receipt(
+        receipt, expected_descriptor=descriptor
+    ) == receipt["receipt_hash"]
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("knowledge", "captured", "reason"),
+    [
+        ("2026-07-17T08:00:00+08:00", "2026-07-17T07:00:00+08:00", "capture precedes"),
+        ("2026-07-17T08:00:00+08:00", "2026-07-17T09:00:00+08:00", "must equal"),
+        ("2026-07-18T08:00:00+08:00", "2026-07-18T08:00:00+08:00", "after query as_of"),
+    ],
+)
+def test_staged_seal_rejects_invalid_pit_before_creating_receipt(knowledge, captured, reason):
+    with pytest.raises(ValueError, match=reason):
+        seal_staged_query_source_receipt(
+            _descriptor(), knowledge_available_at=knowledge, captured_at=captured,
+        )

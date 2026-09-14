@@ -71,11 +71,16 @@ describe("generated bundled macro prompts", () => {
     ]);
   });
 
-  it.each(MACRO_AGENT_IDS)("binds %s to one role-scoped tool and exact mode schema", (agent) => {
+  it.each(
+    MACRO_AGENT_IDS,
+  )("binds %s to its snapshot and shadow research under the exact mode schema", (agent) => {
     for (const language of ["zh", "en"] as const) {
       const text = prompt(agent, language);
       const tools = [...new Set(text.match(/\bget_[a-z0-9_]+\b/g) ?? [])];
-      expect(tools).toEqual(MACRO_ROLE_CONTRACTS[agent].requiredTools);
+      expect(tools).toEqual([
+        ...MACRO_ROLE_CONTRACTS[agent].requiredTools,
+        "get_rke_research_context",
+      ]);
       expect(text).toContain(MACRO_ROLE_CONTRACTS[agent].responsibility[language]);
       expect(text).toContain(language === "zh" ? "运行时 schema" : "runtime schema");
       const block = text.match(

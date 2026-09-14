@@ -1226,7 +1226,7 @@ def test_capture_agent_claim_footprints_blocks_wrong_ranking_policy(
     assert result["capture_status"] == "blocked"
     assert result["captured_count"] == 0
     assert (
-        "ranking_policy_id must be rke_agent_research_context_rank_v1"
+        "unsupported ranking_policy_id"
         in result["failures"][0]
     )
     assert not (project_root / result["private_rows_path"]).exists()

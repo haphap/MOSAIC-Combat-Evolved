@@ -41,6 +41,27 @@ from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtu
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+def test_tool_authority_rejection_has_structured_reason() -> None:
+    from mosaic.bridge.handlers import tools as bridge_tools
+    from mosaic.bridge.protocol import INVALID_PARAMS, RpcError
+    from mosaic.bridge.tool_capabilities import _unique_tool_audit_context
+
+    for contexts, reason in [([], "KNOT_TOOL_AUTHORITY_MISSING"),
+                             ([{"tool_id": "get_rke_research_context"}] * 2, "KNOT_TOOL_AUTHORITY_DUPLICATE")]:
+        def reject(*_args):
+            return _unique_tool_audit_context(contexts, "get_rke_research_context")
+
+        with patch.object(bridge_tools, "get_capability_store") as store:
+            store.return_value.call_tool_result.side_effect = reject
+            try:
+                bridge_tools.tools_call({"capability": {}, "name": "get_rke_research_context"})
+            except RpcError as error:
+                assert error.code == INVALID_PARAMS
+                assert error.data == {"reason_code": reason, "category": "authorization_rejected"}
+            else:
+                raise AssertionError("missing/duplicate authority must reject")
+
+
 def test_handler_stdout_is_kept_off_the_protocol_stream() -> None:
     from mosaic.bridge import server as bridge_server
 
@@ -480,10 +501,13 @@ class BridgeProtocolTests(_BridgeTestCase):
 class MacroToolBridgeTests(_BridgeTestCase):
     """End-to-end capability lifecycle over the JSON-RPC subprocess."""
 
-    def test_role_capability_lists_only_one_zero_argument_snapshot(self) -> None:
+    def test_role_capability_lists_snapshot_and_rke_prior(self) -> None:
         capability = self.prepare_china_capability()
         tools = self.call_ok("tools.list", {"capability": capability})
-        self.assertEqual([tool["name"] for tool in tools], [EXPECTED_CHINA_TOOL])
+        self.assertEqual(
+            [tool["name"] for tool in tools],
+            [EXPECTED_CHINA_TOOL, "get_rke_research_context"],
+        )
         self.assertEqual(
             tools[0]["args_schema"],
             {

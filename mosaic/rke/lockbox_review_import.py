@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -14,6 +14,8 @@ from .manual_review_import import (
     manual_review_forbidden_field_paths,
     review_row_fingerprint,
 )
+
+from mosaic.rke.json_io import write_json as _write_json
 
 
 LOCKBOX_POLICY_PATH = "registry/evaluation/lockbox/lockbox_policy.json"
@@ -62,25 +64,6 @@ class LockboxReviewImportReport:
     rejected_reasons: Sequence[str]
     policy_reasons: Sequence[str]
     downstream_outputs: Mapping[str, str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _read_json(path: Path) -> Any:
@@ -245,20 +228,17 @@ def _write_lockbox_downstream(root_path: Path) -> dict[str, str]:
     return outputs
 
 
-def apply_lockbox_review_import(
-    root: str | Path,
-    input_path: str | Path,
+def build_lockbox_review_import_report(
+    input_payload: Any,
+    target_payload: Any,
+    policy_payload: Any,
     *,
-    dry_run: bool = False,
+    input_path: str | Path,
+    dry_run: bool = True,
+    parse_errors: Sequence[str] = (),
 ) -> LockboxReviewImportReport:
-    root_path = Path(root)
-    resolved_input = _resolve_path(root_path, input_path)
-    target_path = root_path / LOCKBOX_REVIEW_PATH
-    rejected_reasons: list[str] = []
-    target_payload, target_error = _read_json_or_error(target_path, "lockbox target")
-    policy_payload, policy_error = _read_json_or_error(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
-    input_payload, input_error = _read_json_or_error(resolved_input, "lockbox review import")
-    rejected_reasons.extend(error for error in (target_error, policy_error, input_error) if error)
+    """Validate a supplied decision against its target and policy without writes."""
+    rejected_reasons = list(parse_errors)
     if not isinstance(target_payload, Mapping):
         rejected_reasons.append("lockbox target must be object")
     if not isinstance(policy_payload, Mapping):
@@ -282,28 +262,45 @@ def apply_lockbox_review_import(
         if not rejected_reasons
         else evaluate_lockbox_review(None)
     )
-    accepted = not rejected_reasons
-    downstream_outputs: dict[str, str] = {}
-    applied = False
-    if accepted and not dry_run:
-        _write_json(target_path, normalized)
-        downstream_outputs = _write_lockbox_downstream(root_path)
-        applied = True
-
-    report = LockboxReviewImportReport(
+    return LockboxReviewImportReport(
         report_id="RKE-LOCKBOX-REVIEW-IMPORT-REPORT-20260606",
-        input_path=str(resolved_input),
+        input_path=str(input_path),
         target_path=LOCKBOX_REVIEW_PATH,
         dry_run=dry_run,
-        accepted=accepted,
-        applied=applied,
+        accepted=not rejected_reasons,
+        applied=False,
         result=str(normalized.get("result") or ""),
         production_allowed=decision.production_allowed,
         decision_state=decision.state,
         next_state=decision.next_state,
         rejected_reasons=tuple(rejected_reasons),
         policy_reasons=tuple(decision.reasons),
-        downstream_outputs=downstream_outputs,
+        downstream_outputs={},
     )
+
+
+def apply_lockbox_review_import(
+    root: str | Path,
+    input_path: str | Path,
+    *,
+    dry_run: bool = False,
+) -> LockboxReviewImportReport:
+    root_path = Path(root)
+    resolved_input = _resolve_path(root_path, input_path)
+    target_path = root_path / LOCKBOX_REVIEW_PATH
+    target_payload, target_error = _read_json_or_error(target_path, "lockbox target")
+    policy_payload, policy_error = _read_json_or_error(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
+    input_payload, input_error = _read_json_or_error(resolved_input, "lockbox review import")
+    report = build_lockbox_review_import_report(
+        input_payload,
+        target_payload,
+        policy_payload,
+        input_path=resolved_input,
+        dry_run=dry_run,
+        parse_errors=tuple(error for error in (target_error, policy_error, input_error) if error),
+    )
+    if report.accepted and not dry_run:
+        _write_json(target_path, _normalize_lockbox_row(input_payload, target_payload))
+        report = replace(report, applied=True, downstream_outputs=_write_lockbox_downstream(root_path))
     _write_json(root_path / LOCKBOX_REVIEW_IMPORT_REPORT_PATH, asdict(report))
     return report

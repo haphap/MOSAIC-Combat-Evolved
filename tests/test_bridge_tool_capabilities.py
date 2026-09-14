@@ -18,7 +18,7 @@ from mosaic.bridge.tool_capabilities import (
     materialize_tool_payload,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
+from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer, BoundRuntimeAdaptiveQueryPreparer
 from mosaic.dataflows.bound_runtime_snapshots import (
     bound_runtime_snapshot_output_hash,
     publish_bound_runtime_snapshot,
@@ -309,7 +309,8 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         ("eu_economy", "eu_economy", "2026-07-09"),
         ("semiconductor", "semiconductor", "2026-07-09"),
     ]
-    assert [(agent_id, stage) for agent_id, stage, _ in adaptive_calls] == [
+    assert [(agent_id, stage) for agent_id, stage, _ in adaptive_calls] == sorted([
+        *((agent_id, agent_id) for agent_id in capability_module.MACRO_AGENT_TO_TOOL),
         ("agriculture", "agriculture"),
         ("biotech", "biotech"),
         ("consumer", "consumer"),
@@ -319,11 +320,11 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         ("real_estate_construction", "real_estate_construction"),
         ("semiconductor", "semiconductor"),
         ("technology", "technology"),
-    ]
+    ])
     assert materializer_calls
     assert result == {
         "as_of": "2026-07-09",
-        "adaptive_stage_count": 9,
+        "adaptive_stage_count": 17,
         "family_stage_count": 4,
         "status": "SOURCE_PREPARED",
     }
@@ -411,11 +412,11 @@ def _bound_snapshot(
     upstream_kind: str,
 ) -> dict:
     contract_versions = {
-        "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v1",
-        "get_cro_risk_snapshot": "cro_risk_snapshot_v1",
-        "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v1",
-        "get_execution_snapshot": "execution_snapshot_v1",
-        "get_cio_decision_snapshot": "cio_decision_snapshot_v1",
+        "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v2",
+        "get_cro_risk_snapshot": "cro_risk_snapshot_v2",
+        "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v2",
+        "get_execution_snapshot": "execution_snapshot_v2",
+        "get_cio_decision_snapshot": "cio_decision_snapshot_v2",
     }
     def accepted_ref(
         index: int, *, agent: str, ref_stage: str, kind: str
@@ -735,7 +736,6 @@ def _bound_snapshot(
         "constraint_set_hash": constraint_set_hash,
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": _canonical_hash(role_context),
         "upstream_accepted_output_refs": upstream_refs,
         "evidence_ledger": [
             {
@@ -799,7 +799,6 @@ def _rehash_bound_snapshot(payload: dict) -> dict:
         }
     )
     payload["constraint_set_hash"] = _canonical_hash(payload["constraints"])
-    payload["role_context_hash"] = _canonical_hash(payload["role_context"])
     payload["candidate_scope"] = {
         "candidate_universe_id": payload["candidate_universe_id"],
         "candidate_universe_hash": payload["candidate_universe_hash"],
@@ -868,8 +867,8 @@ def test_v3_matrix_has_25_agents_and_26_closed_execution_stages():
 
 
 def test_matrix_restricts_roles_to_the_frozen_plan_tools():
-    assert allowed_tools_for_agent("china") == ("get_china_macro_snapshot",)
-    assert allowed_tools_for_agent("central_bank") == ("get_central_bank_snapshot",)
+    assert allowed_tools_for_agent("china") == ("get_china_macro_snapshot", "get_rke_research_context")
+    assert allowed_tools_for_agent("central_bank") == ("get_central_bank_snapshot", "get_rke_research_context")
     assert allowed_tools_for_agent("biotech") == (
         "get_sector_research_snapshot",
         "get_broker_research",
@@ -1268,8 +1267,8 @@ def test_bound_runtime_role_schemas_reject_foreign_or_incomplete_role_payloads(
         (
             lambda row: row.update(
                 {
-                    "schema_version": "alpha_candidate_snapshot_v2",
-                    "contract_version": "alpha_candidate_snapshot_v2",
+                    "schema_version": "alpha_candidate_snapshot_v1",
+                    "contract_version": "alpha_candidate_snapshot_v1",
                 }
             ),
             "strict contract",
@@ -1597,16 +1596,18 @@ def test_prepare_materializes_once_and_calls_read_only_bundle_payload(tmp_path):
     prepared = store.prepare(_request(), materializer=materializer)
     envelope = prepared["capability"]
     assert calls == [
-        ("get_china_macro_snapshot", "china", "china", "2026-07-09", "graph-1")
+        ("get_china_macro_snapshot", "china", "china", "2026-07-09", "graph-1"),
+        ("get_rke_research_context", "china", "china", "2026-07-09", "graph-1")
     ]
     assert prepared["bundle"]["tool_payload_hashes"].keys() == {
-        "get_china_macro_snapshot"
+        "get_china_macro_snapshot", "get_rke_research_context"
     }
     assert prepared["bundle"]["runtime_input_hash"].startswith("sha256:")
     assert prepared["bundle"]["candidate_scope_hash"] is None
 
     metadata = store.list_tools(envelope)
-    assert metadata == [
+    assert [row["name"] for row in metadata] == list(allowed_tools_for_agent("china"))
+    assert metadata[:1] == [
         {
             "name": "get_china_macro_snapshot",
             "description": "Return the frozen China macro snapshot for this run.",
@@ -1621,7 +1622,7 @@ def test_prepare_materializes_once_and_calls_read_only_bundle_payload(tmp_path):
     assert store.call_tool(envelope, "get_china_macro_snapshot", {}) == (
         '{"tool":"get_china_macro_snapshot","frozen":true}'
     )
-    assert len(calls) == 1
+    assert len(calls) == 2
     with pytest.raises(ValueError, match="already been used"):
         store.call_tool(envelope, "get_china_macro_snapshot", {})
 
@@ -1650,7 +1651,7 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
             "historical_replay_captured_at": "2026-08-12T03:46:26.959816+00:00",
         }
         assert context["adaptive_query"] is None
-        assert set(context["tool_payload_hashes"]) == {"get_china_macro_snapshot"}
+        assert set(context["tool_payload_hashes"]) == {"get_china_macro_snapshot", "get_rke_research_context"}
         events.append(("finalize", context["stage"]))
 
     store = AgentToolCapabilityStore(
@@ -1666,6 +1667,7 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
     store.prepare(request, materializer=materializer)
     assert events == [
         ("prepare", "china"),
+        ("materialize", "china"),
         ("materialize", "china"),
         ("finalize", "china"),
     ]
@@ -2862,4 +2864,69 @@ def test_sector_usage_persists_sanitized_validation_issues_and_rejects_untrusted
                 "model_subcall_id": "technology-long-message",
                 "validation_issues": [{**issue_a, "message": "x" * 513}],
             },
+        )
+
+
+@pytest.mark.parametrize("agent_id", sorted(capability_module.MACRO_AGENT_TO_TOOL))
+def test_macro_rke_uses_bound_initial_query_without_ticker_and_rejects_expansion(tmp_path, agent_id):
+    now = datetime(2026, 7, 9, tzinfo=timezone.utc)
+    frozen = FrozenAdaptiveQueryStore(tmp_path / "queries.sqlite3", clock=lambda: now)
+    calls = []
+
+    def research(tool_id, args):
+        calls.append((tool_id, dict(args)))
+        return {"payload": json.dumps({"historical_research": True}), "source_receipt_hashes": []}
+
+    preparer = ActiveAdaptiveQueryPreparer(
+        sector_relationship_preparer=lambda **kwargs: pytest.fail("macro sent to sector compiler"),
+        bound_runtime_preparer=BoundRuntimeAdaptiveQueryPreparer(
+            root=Path(__file__).parents[1], frozen_store=frozen, materializer=research,
+        ),
+    )
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3", signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1", clock=lambda: now,
+        adaptive_query_store=frozen, adaptive_query_preparer=preparer,
+        adaptive_query_materializer=research,
+        stage_materialization_finalizer=lambda context: {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"},
+        require_knot_v2_audit_authority=True,
+    )
+    snapshot = {"schema_version": "macro_role_snapshot_v2", "role": agent_id,
+                "as_of_date": "2026-07-09", "observations": [], "events": []}
+    snapshot["snapshot_hash"] = canonical_hash(snapshot)
+    prepared = store.prepare(_request(agent_id), materializer=lambda *args, **kwargs: json.dumps(snapshot))
+    capability = prepared["capability"]
+    assert calls == []
+    tools = store.list_tools(capability)
+    assert [row["name"] for row in tools] == list(allowed_tools_for_agent(agent_id))
+    query = {"agent_id": agent_id, "as_of": "2026-07-09", "layer": "macro", "max_items": 3}
+    for changes in ({"agent_id": "cio"}, {"as_of": "2026-07-10"}, {"ticker": "600519.SH"}, {"max_items": 12}):
+        with pytest.raises(ValueError):
+            store.call_tool_result(capability, "get_rke_research_context", {**query, **changes})
+    assert calls == []
+    store.call_tool_result(capability, capability_module.MACRO_AGENT_TO_TOOL[agent_id], {})
+    result = store.call_tool_result(capability, "get_rke_research_context", {})
+    assert json.loads(result["text"]) == {"historical_research": True}
+    assert calls == [("get_rke_research_context", query)]
+    with store._connect() as conn:
+        projection = json.loads(conn.execute(
+            "SELECT public_projection_json FROM snapshot_bundle_adaptive_queries"
+        ).fetchone()[0])
+    assert projection["adaptive_max_rounds"] == 0
+    assert len(projection["entries"]) == 1
+    assert projection["entries"][0]["call_mode"] == "INITIAL"
+
+
+@pytest.mark.parametrize("field,value", [("role", "us_economy"), ("as_of_date", "2026-07-10"), ("snapshot_hash", "sha256:" + "0" * 64)])
+def test_macro_rke_rejects_wrong_snapshot_identity(tmp_path, field, value):
+    from mosaic.dataflows.bound_runtime_query_plans import build_bound_runtime_query_plan
+
+    snapshot = {"schema_version": "macro_role_snapshot_v2", "role": "china", "as_of_date": "2026-07-09"}
+    snapshot["snapshot_hash"] = canonical_hash(snapshot)
+    snapshot[field] = value
+    with pytest.raises(ValueError, match="identity/hash mismatch"):
+        build_bound_runtime_query_plan(
+            agent_id="china", stage="china", as_of="2026-07-09",
+            initial_payloads={"get_china_macro_snapshot": json.dumps(snapshot)},
+            allowed_tools=("get_rke_research_context",),
         )

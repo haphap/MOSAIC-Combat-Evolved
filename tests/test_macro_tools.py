@@ -23,10 +23,10 @@ def test_bridge_does_not_register_arbitrary_query_tool_modules():
     assert "capability" in exc.value.message
 
 
-def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
+def test_macro_matrix_has_snapshot_and_rke_without_legacy_or_search_tools():
     assert set(MACRO_AGENT_TO_TOOL) == set(MACRO_AGENTS)
     for agent, tool_id in MACRO_AGENT_TO_TOOL.items():
-        assert AGENT_TOOL_MATRIX[agent] == (tool_id,)
+        assert AGENT_TOOL_MATRIX[agent] == (tool_id, "get_rke_research_context")
         assert tool_id in TOOL_DESCRIPTIONS
     forbidden = {
         "get_fred_series",
@@ -36,7 +36,6 @@ def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
         "get_rates_credit_snapshot",
         "get_fx_conditions_snapshot",
         "get_volatility_snapshot",
-        "get_rke_research_context",
     }
     macro_tools = {
         tool_id
@@ -44,7 +43,7 @@ def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
         for tool_id in AGENT_TOOL_MATRIX[agent]
     }
     assert forbidden.isdisjoint(macro_tools)
-    assert (forbidden - {"get_rke_research_context"}).isdisjoint(TOOL_DESCRIPTIONS)
+    assert forbidden.isdisjoint(TOOL_DESCRIPTIONS)
     assert "get_rke_research_context" in TOOL_DESCRIPTIONS
 
 
