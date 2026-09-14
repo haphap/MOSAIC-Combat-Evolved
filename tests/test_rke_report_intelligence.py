@@ -176,7 +176,8 @@ def test_full_report_does_not_inherit_final_disclaimer_section():
 
 @pytest.mark.parametrize("backend", ["vllm", "ninfer"])
 @pytest.mark.parametrize("finish_reason", ["stop", "length"])
-def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, finish_reason):
+@pytest.mark.parametrize("model", ["qwen3.8-27b", "qwen3.6-35b-a3b"])
+def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, finish_reason, model):
     seen: dict[str, object] = {}
 
     class _Response:
@@ -231,24 +232,44 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, fi
         0,
         1,
         base_url="https://example.test/v1",
-        model="mimo-v2.5-pro",
+        model=model,
         api_key="secret-token",
         backend=backend,
+        max_output_tokens=16384,
+        review_notes="Recheck the valuation method against the original report.",
     )
 
     assert result["status"] == ("blocked" if finish_reason == "length" else "ok")
     if finish_reason == "length":
         assert result["blocker"] == "vllm_output_length_limit"
-    assert result["model"] == "mimo-v2.5-pro"
+    assert result["model"] == model
     assert seen["url"] == "https://example.test/v1/chat/completions"
     assert seen["authorization"] == "Bearer secret-token"
-    assert seen["payload"]["model"] == "mimo-v2.5-pro"
-    assert seen["payload"]["response_format"] == {"type": "json_object"}
+    assert seen["payload"]["model"] == model
+    assert "Recheck the valuation method" in seen["payload"]["messages"][1]["content"]
+    assert "原文 Markdown" in seen["payload"]["messages"][1]["content"]
     if backend == "ninfer":
         assert "chat_template_kwargs" not in seen["payload"]
-        assert seen["payload"]["reasoning_effort"] == "medium"
+        assert "response_format" not in seen["payload"]
+        assert seen["payload"]["presence_penalty"] == 0
+        if model == "qwen3.6-35b-a3b":
+            assert seen["payload"]["enable_thinking"] is True
+            assert "reasoning_effort" not in seen["payload"]
+        else:
+            assert seen["payload"]["reasoning_effort"] == "xhigh"
+        assert seen["payload"]["max_tokens"] == 2**31 - 1
     else:
+        assert seen["payload"]["response_format"] == {"type": "json_object"}
         assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
+        assert seen["payload"]["max_tokens"] == 16384
+
+
+def test_review_notes_are_limited_to_one_source():
+    for source_ids in ((), ("SRC-1", "SRC-2")):
+        with pytest.raises(ValueError, match="exactly one source_id"):
+            ReportIntelligenceConfig(source_ids=source_ids, review_notes="Missing method.")
+    cfg = ReportIntelligenceConfig(source_ids=("SRC-1",), review_notes="Missing method.")
+    assert cfg.review_notes == "Missing method."
 
 
 @pytest.mark.parametrize("max_chunks, truncated", [(8, False), (1, True)])

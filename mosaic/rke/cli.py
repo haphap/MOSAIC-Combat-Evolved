@@ -1853,6 +1853,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local chat backend request format. Defaults to vllm.",
     )
     report_intelligence.add_argument(
+        "--review-notes-file",
+        help="Private UTF-8 review notes for re-extraction; requires exactly one --source-id.",
+    )
+    report_intelligence.add_argument(
         "--vllm-base-url",
         help=(
             "OpenAI-compatible vLLM base URL. Defaults to "
@@ -1887,7 +1891,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-llm-output-tokens",
         type=int,
         default=4096,
-        help="Maximum output tokens per LLM extraction chunk. Defaults to 4096.",
+        help=(
+            "Maximum vLLM output tokens per extraction chunk. Defaults to 4096. "
+            "NInfer uses the remaining context capacity instead of this cap."
+        ),
     )
     report_intelligence.add_argument(
         "--qlib-etf-dir",
@@ -3076,6 +3083,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 vllm_model=args.vllm_model
                 or os.environ.get("MOSAIC_RKE_VLLM_MODEL"),
                 llm_backend=args.llm_backend,
+                review_notes=Path(args.review_notes_file).read_text(encoding="utf-8")
+                if args.review_notes_file else "",
                 vllm_api_key=next(
                     (
                         os.environ[name.strip()]

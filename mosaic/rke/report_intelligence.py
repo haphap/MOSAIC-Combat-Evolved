@@ -1234,6 +1234,7 @@ class ReportIntelligenceConfig:
     vllm_model: str | None = None
     vllm_api_key: str | None = None
     llm_backend: Literal["vllm", "ninfer"] = "vllm"
+    review_notes: str = ""
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
     scorecard_db_path: str | Path | None = None
@@ -1246,6 +1247,8 @@ class ReportIntelligenceConfig:
     def __post_init__(self) -> None:
         if self.derived_scope not in {"basic", "full"}:
             raise ValueError("derived_scope must be basic or full")
+        if self.review_notes and len(self.source_ids) != 1:
+            raise ValueError("review notes require exactly one source_id")
 
 
 def _emit_report_intelligence_progress(
@@ -3323,9 +3326,7 @@ def _user_prompt(
                 "question": "", "historical_regime": "", "reasoning_chain": [],
                 "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": "",
             },
-            "indicator_mentions": [], "analysis_patterns": [], "target_agent_candidates": [],
         }],
-        "forecast_claims": [], "metric_candidates": [], "method_patterns": [], "tool_gaps": [],
     }
     return (
         "Read the original Markdown and preserve each coherent research argument as "
@@ -3340,17 +3341,16 @@ def _user_prompt(
         "source's observed macro or industry conditions with their original time scope; "
         "use an empty string when none are stated. A generic warning that policy changes "
         "may affect an industry is not an observed regime and must not fill this field. "
-        "reasoning_chain preserves the ordered causal steps. evidence contains brief "
+        "reasoning_chain preserves only the source's ordered causal steps, without "
+        "adding plausible implications. evidence contains brief "
         "supporting observations, each with its original entity, period, units and "
         "actual/estimate status. assumptions and invalidation_conditions contain only "
-        "source-stated conditions; otherwise leave them empty. conclusion preserves "
+        "source-stated conditions, including the report's specific risks that could "
+        "undermine its argument; otherwise leave them empty. conclusion preserves "
         "the complete answer, source forecasts with their years, and the actual rating "
         "when given. Keep forecast valuation ratios distinct from observed repricing. "
         "A quarter's conditions must not become a full-year regime.\n\n"
-        "Keep forecasts within the case conclusion. Leave forecast_claims, "
-        "metric_candidates, method_patterns, tool_gaps, indicator_mentions, "
-        "analysis_patterns and target_agent_candidates empty. Do not duplicate the "
-        "argument into mappings, proxy returns, methods or model self-reviews. "
+        "Keep forecasts within the case conclusion. Return only the fields in the output shape. "
         "Use the report language and complete statements. Unknown text fields are "
         "empty strings; unknown list fields are empty arrays.\n\n"
         "Output shape (all case list elements are strings):\n"
@@ -3375,6 +3375,7 @@ def call_vllm_extractor(
     timeout_seconds: int = 120,
     max_output_tokens: int = 4096,
     backend: Literal["vllm", "ninfer"] = "vllm",
+    review_notes: str = "",
 ) -> Mapping[str, Any]:
     resolved_model = resolve_vllm_model(
         base_url,
@@ -3401,8 +3402,24 @@ def call_vllm_extractor(
         "max_tokens": max_output_tokens,
         "response_format": {"type": "json_object"},
     }
+    if review_notes:
+        payload["messages"][1]["content"] += (
+            "\n\nReview notes for this source (not source evidence):\n"
+            f"{review_notes}\n\n"
+            "Re-read the original Markdown to address these findings. Return the "
+            "complete corrected JSON, not a patch or only the missing fields. "
+            "Preserve supported content; do not add anything absent from the source. "
+            "These notes do not approve the result."
+        )
     if backend == "ninfer":
-        payload["reasoning_effort"] = "medium"
+        payload.pop("response_format")
+        payload["presence_penalty"] = 0
+        if resolved_model == "qwen3.6-35b-a3b":
+            payload["enable_thinking"] = True
+        else:
+            payload["reasoning_effort"] = "xhigh"
+        # NInfer clips this API integer ceiling to the remaining context capacity.
+        payload["max_tokens"] = 2**31 - 1
     else:
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
@@ -35767,6 +35784,7 @@ def run_report_intelligence_refresh(
             timeout_seconds=cfg.vllm_timeout_seconds,
             max_output_tokens=cfg.max_llm_output_tokens,
             backend=cfg.llm_backend,
+            review_notes=cfg.review_notes,
         )
     )
 

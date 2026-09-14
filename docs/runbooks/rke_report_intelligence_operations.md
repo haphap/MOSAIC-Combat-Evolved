@@ -133,13 +133,24 @@ pass. Do not send private cases to an unapproved external model to fill gaps.
 When NInfer is selected, reuse its running local service. Check `/health` and
 `/v1/models`; use the returned model ID and the listening loopback port. Do not
 start another GPU service. NInfer uses the existing chat extraction path with
-`--llm-backend ninfer`: it requires native `response_format: {"type":"json_object"}`
-and requests `reasoning_effort: medium`. Upgrade NInfer to a build implementing
-constraint masks before running extraction; older text-only builds reject this
-request. Do not silently retry without the format constraint. NInfer separates
-reasoning from answer content;
-only the answer is parsed. The existing JSON parser and artifact checks
-still apply. The default backend remains vLLM.
+`--llm-backend ninfer` and plain text output requested as JSON in the prompt.
+Use the upstream build; custom token masks are no longer required. Qwen3.6-35B-A3B
+uses `enable_thinking: true` because its template has no effort tiers. The existing
+Qwen3.8-27B template uses `reasoning_effort: xhigh`. Reasoning stays separate from
+answer content. Set `presence_penalty: 0` for extraction; the 35B thinking preset's
+default of 1.5 penalizes repeated tokens, including JSON structure. Only the
+answer passes through the existing JSON parser and
+artifact checks. Invalid output is recorded as blocked without automatic retries
+or quote repair. The default backend remains vLLM.
+
+NInfer extraction has no separate output-token budget: it requests the API's
+signed-integer ceiling and the engine clips generation to its remaining context
+capacity. Omitting `max_tokens` would restore the server's smaller default.
+`--max-llm-output-tokens` applies only to vLLM; old NInfer batch arguments do not
+limit the actual request. Reasoning and answer tokens share the available context.
+The request timeout still applies, and reaching context capacity still blocks an
+incomplete extraction. Existing queue children retain their loaded code; a change
+to this policy takes effect when the next batch CLI starts.
 
 The answer must be a complete JSON object. Invalid quotes or a truncated document
 block extraction. A `length` finish reason blocks even if the partial content is
@@ -147,8 +158,7 @@ parseable; a nested object inside a broken answer is never accepted as an
 empty successful extraction. A full report with multiple headings does not inherit
 the final heading as its section context. Re-extract blocked sources into separate
 private batches after correcting the cause, and preserve previous diagnostic runs.
-Native JSON mode guarantees syntax, not complete research reasoning or faithful
-source extraction. Review case content before merging a batch; a valid object can
+Review case content before merging a batch; a valid JSON object can
 still contain a sentence cut short by the model.
 Full-text coverage ignores whitespace stripped at chunk boundaries; substantive
 text beyond `--max-chunks` still counts as truncation. Set that cap from the actual
@@ -156,18 +166,21 @@ source length when processing longer reports. Prefer a whole-report chunk when
 its tokenized prompt and output budget fit the running model context: independent
 chunks can repeat or fragment a single argument. NInfer provides the existing
 `/v1/messages/count_tokens` endpoint for a cheap input-size preflight. Use
-`--chunk-chars` and `--max-llm-output-tokens` explicitly; larger context does not
+`--chunk-chars` explicitly, and `--max-llm-output-tokens` for vLLM; larger context does not
 replace source-content review or justify accepting incomplete sentences.
 Markdown repetition checks exclude
 MinerU's `details`/`summary` wrappers while retaining repeated-content checks.
 Narrative fields should paraphrase rating labels and project names in complete
 statements, preserving their meaning without unnecessary quotation marks. Check
 the actual rating and forecast period against the report body.
-Extraction now requests only complete research cases. Forecasts stay in each
-case's conclusion; the other top-level arrays and the optional indicator/pattern/
-agent arrays stay empty. Existing forecast records remain readable, but new cases
-do not create separate forecast outcome-label inputs. Basic metadata identifies
-the source; abstract-derived labels and inferred report/rating context are excluded
+Extraction requests only `analytical_footprints` entries with a topic and complete
+research case. Forecasts stay in each case's conclusion. Omit the unused top-level
+and indicator/pattern/agent arrays from the model's output shape; existing
+normalizers already handle their absence. Requiring those empty arrays caused
+observed object/array closure errors in 35B output. Existing forecast records remain
+readable, but new cases do not create separate forecast outcome-label inputs. Basic
+metadata identifies the source; abstract-derived labels and inferred report/rating
+context are excluded
 from the model request. Original Markdown is preserved in full within its chunk.
 
 Content review must distinguish actuals from forecast columns, preserve the entity
@@ -217,8 +230,8 @@ PYTHONPATH=. MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   --skip-download --skip-convert --require-cached-markdown \
   --llm-backend ninfer \
   --vllm-base-url http://127.0.0.1:18080/v1 \
-  --vllm-model qwen3.8-27b --vllm-api-key-env '' \
-  --vllm-timeout-seconds 600 --max-llm-output-tokens 8192
+  --vllm-model qwen3.6-35b-a3b --vllm-api-key-env '' \
+  --vllm-timeout-seconds 600
 ```
 
 The port and model above must match discovery. The empty key-env argument is
@@ -228,6 +241,53 @@ re-extracting reports from it. Confirm full Markdown coverage, a parsed answer,
 and source-grounded question, ordered reasoning, historical regime and conclusion
 before expanding the batch. Missing fields remain unknown. Keep the published
 registry unchanged until the batch is reviewed and merged by the workflow below.
+
+For a source-specific omission found during content review, add
+`--review-notes-file .mosaic/tmp/<private-notes>.txt` to the same extraction
+command, with exactly one `--source-id` and a fresh private `--registry-dir`.
+The UTF-8 notes should identify the missing argument and its original section;
+they may include the previous case for comparison. Notes are instructions for
+rechecking the original Markdown, not replacement evidence or approval. The model
+returns a complete revised JSON through the existing parser. The previous batch
+and review notes remain private and unchanged. This option does not schedule
+retries or approve imports: inspect the revision against the source, and keep
+unresolved omissions isolated instead of repeating the same correction indefinitely.
+
+Model-generated review notes are candidate findings. Before passing them back for
+correction, compare their cited source and candidate wording: a reviewer can miss
+uncertainty changes, invent a missing phrase, or confuse forecast years with a
+historical regime. Preserve the actual scope of a condition rather than inferring
+it from a field name. Empty cases can be appropriate for news-only reports with
+no supported research argument; distinguish those from extraction failures.
+
+#### Local model update and comparison (2026-09-14)
+
+NInfer at `/home/hap/Project/ninfer` was updated to upstream `d4929686` and built
+without the local JSON-constraint patch. The extraction model is now
+`models/qwen3_6_35b_a3b.ninfer` (`qwen3.6-35b-a3b/groupwise-int`). The existing tmux
+service uses port 18080, MTP3 with `--lm-head-draft`, `--max-context 262144`,
+`--kv-capacity auto`, `--kv-dtype int8`, `--prefill-chunk 1024`, concurrency 1,
+`--no-prefix-reuse --greedy --presence-penalty 0`. Keep the CLI's explicit
+`--llm-backend ninfer --vllm-api-key-env ''`; the default backend remains vLLM.
+
+On the local RTX 5090 D (32 GiB), the new 27B NVFP4 artifact at
+`models/qwen38-dflash2/qwen3_8_27b_nvfp4.ninfer` includes all 66 DFlash2 objects.
+MTP3 served a 260,096-token retrieval input correctly with 262,144-token capacity.
+DFlash2 K7 with the optimized draft head could not start at that capacity with
+the automatic 1 GiB headroom. It started at 229,376, passed the existing 8K/64K/128K
+retrieval inputs, and rejected the 260,096-token input. This is a tested working
+configuration, not a search for its maximum possible context. Prefill time was
+essentially unchanged on the common inputs.
+
+Three identical real-report inputs took 105.0/85.3/235.0 seconds with MTP3 and
+45.8/51.7/196.9 seconds with DFlash2. Decode rates improved by about 27%/17%/6%;
+the larger total-time reduction also reflects shorter outputs. These are single
+runs with different context capacities, not a statistical or identical-output
+benchmark. All six JSON results completed without truncation. The final 35B
+configuration also completed three reports, but source review found omitted
+valuation reasoning and rating-definition noise: format success does not waive
+content review. Comparison records remain private under
+`.mosaic/tmp/ninfer-update-35b/`; none of these trial cases were published.
 
 ## Tool Gap Review Migration
 
