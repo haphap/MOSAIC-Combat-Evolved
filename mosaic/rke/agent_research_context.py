@@ -20,7 +20,7 @@ from .research_case import normalize_research_case
 SCHEMA_VERSION = "rke_agent_research_context_v4"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
-RANKING_POLICY_ID = "rke_agent_research_context_rank_v4"
+RANKING_POLICY_ID = "rke_agent_research_context_rank_v5"
 FORBIDDEN_FIELD_POLICY = "internal_research_cases_only_raw_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
@@ -634,7 +634,8 @@ def build_rke_agent_research_context_from_rows(
         # Diversify equally relevant sources without burying a relevant argument
         # behind every unrelated source just because it shares a report.
         ranked_items.sort(key=lambda item: (
-            0 if item.get("research_case") else 1, -item.get("case_relevance_score", 0),
+            0 if item.get("research_case") else 1,
+            0 if item.get("ticker_match") else 1, -item.get("case_relevance_score", 0),
         ))
     for rank, item in enumerate(ranked_items, 1):
         item["retrieval_rank"] = rank
@@ -1099,12 +1100,15 @@ def _case_relevance_score(case: Mapping[str, Any], agent_id: str, sector: str) -
     keywords = set(MACRO_RESEARCH_KEYWORDS.get(agent_id, ()))
     keywords.update(SECTOR_AGENT_KEYWORDS.get(agent_id, ()))
     keywords.update(SUPERINVESTOR_STYLE_KEYWORDS.get(agent_id, ()))
+    role_score = sum(_sector_keyword_matches(keyword, text) for keyword in keywords)
     if sector:
         direction_agent = _sector_agent_for_direction(sector)
-        keywords.update(SECTOR_DIRECTION_KEYWORDS.get(
+        focus_keywords = SECTOR_DIRECTION_KEYWORDS.get(
             (direction_agent.removeprefix("sector."), sector), (sector,),
-        ))
-    return sum(_sector_keyword_matches(keyword, text) for keyword in keywords)
+        )
+        if any(_sector_keyword_matches(keyword, text) for keyword in focus_keywords):
+            return len(keywords) + 1 + role_score
+    return role_score
 
 
 def _style_fit_bucket(
@@ -1135,8 +1139,8 @@ def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]
 def _context_item_rank_key(item: Mapping[str, Any]) -> tuple[Any, ...]:
     return (
         0 if item.get("content_type") == "research_case" else 1,
-        -item.get("case_relevance_score", 0),
         0 if item.get("ticker_match") else 1,
+        -item.get("case_relevance_score", 0),
         _specificity_rank(item.get("agent_target_specificity_bucket")),
         _reverse_date_key(item.get("available_date")),
         str(item.get("redacted_claim_id") or ""),

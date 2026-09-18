@@ -273,7 +273,7 @@ def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_p
     payload = json.loads(capsys.readouterr().out)
     assert payload["agent_id"] == "decision.cio"
     assert payload["production_signal_allowed"] is False
-    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v4"
+    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
     assert payload["summary"]["item_count"] == 3
     assert {item["domain"] for item in payload["context_items"]} == {
         "stock",
@@ -539,7 +539,7 @@ def test_context_ranks_all_matches_before_truncating():
         ],
     )
 
-    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v4"
+    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
     assert context["summary"]["matched_item_count"] == 2
     assert context["summary"]["truncated_item_count"] == 1
     item = context["context_items"][0]
@@ -1646,7 +1646,7 @@ def test_research_case_access_does_not_require_entity_industry_or_role_tags(agen
     )["context_items"] == []
 
 
-def test_case_reasoning_relevance_precedes_directory_labels_and_ticker_match():
+def test_explicit_stock_precedes_role_keywords_without_excluding_transfer_cases():
     metadata = [{"report_id": report, "source_id": report,
                  "ts_code": "600519.SH" if report == "unrelated" else "",
                  "sector": "银行" if report == "unrelated" else "宏观策略",
@@ -1669,7 +1669,18 @@ def test_case_reasoning_relevance_precedes_directory_labels_and_ticker_match():
             metadata=metadata, footprints=footprints,
         )
         assert context["summary"]["matched_item_count"] == 2
-        assert context["context_items"][0]["research_case"]["question"].startswith("银行")
+        assert context["context_items"][0]["ticker_match"] is True
+        broad = build_rke_agent_research_context_from_rows(
+            agent_id=agent_id, as_of_date="2026-01-01",
+            metadata=metadata, footprints=footprints,
+        )
+        assert broad["context_items"][0]["research_case"]["question"].startswith("银行")
+        focused = build_rke_agent_research_context_from_rows(
+            agent_id=agent_id, sector="新品", as_of_date="2026-01-01",
+            metadata=metadata, footprints=footprints,
+        )
+        assert focused["summary"]["matched_item_count"] == 2
+        assert focused["context_items"][0]["research_case"]["question"].startswith("新品")
 
 
 @pytest.mark.parametrize("agent_id", ["cio", "decision.cio"])

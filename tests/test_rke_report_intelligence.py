@@ -10263,7 +10263,7 @@ def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contrac
     check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
     assert check["passed"] is True
     evidence = check["evidence"]
-    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v4"
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
     assert evidence["ranked_context_agent_count"] >= 1
     assert evidence["no_prior_reason_agent_count"] >= 1
     assert evidence["current_data_guard_violation_count"] == 0

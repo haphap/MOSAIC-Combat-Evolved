@@ -57,9 +57,12 @@ An explicit `MOSAIC_REGISTRY_DIR` takes precedence over `MOSAIC_REGISTRIES_REPO`
 for both case data and its source archive. Keep the report-intelligence directory
 under the selected repository's `registry/` so source receipts resolve alongside it.
 
-Case retrieval uses rank policy v4. Stock, sector and Agent labels are ranking
+Case retrieval uses rank policy v5. Stock, sector and Agent labels are ranking
 preferences rather than case access requirements. Research questions, historical
-regimes and reasoning participate in lexical relevance ranking; source metadata
+regimes and reasoning participate in lexical relevance ranking. An explicitly
+requested stock ranks first; otherwise a requested sector/direction found in the
+argument takes priority over generic role keywords. Other cases remain available
+for transfer, and an untargeted request ranks by role relevance. Source metadata
 does not substitute for argument content. Unrelated cases can remain in the
 candidate set, so a larger match count is not proof of relevance. Source diversity
 breaks ties within a relevance level. Existing forecast rows retain their target
