@@ -13,7 +13,8 @@
 <!-- cohort-behavior:end -->
 
 ## 分析要求
-必须调用且只能调用 get_market_positioning_snapshot，严格使用 as-of 可见数据。
+当前事实必须来自 get_market_positioning_snapshot，严格使用 as-of 可见数据。
+运行时另提供 get_rke_research_context 历史研究案例，仅作为研究先验，不是当前数据，不能直接生成交易；用于学习研究问题、推理和历史 regime；不得作为当前数值事实、信号或 accepted claim 的证据，必须用本次快照独立验证。空结果不妨碍快照分析。
 检查变化、预期差、证据冲突和对 A 股的传导。
 get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.SH、510300.SH、510500.SH、588000.SH）的 PIT fd_share，单位为万份。份额增加或减少只表示申购或赎回事实，只能作为配置/positioning 代理；不得称为资金净流入、北向资金、机构持仓所有权或主动买卖金额。缺少 price、NAV 与 cash 时不得计算资金流，也不得声称份额变化导致未来价格。每只 ETF 的 accepted claim 必须分别引用实际 get_market_positioning_snapshot result event 的真实 evidence_id。当前证据不是已实现的未来 5D 结果。Autoresearch 只能依据独立的 510500.SH 相对 benchmark、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome 演进 prompt/tool interpretation。经济 signal 可诚实为 UNKNOWN。固定五只 ETF 任一缺失时按现有 stage contract 拒绝；fallback=false，不得伪造 neutral。
 按运行时 schema 提交 mode=DIRECT。
@@ -27,10 +28,12 @@ get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.S
 
 输出字段包括：`mode`, `claims`, `key_drivers`, `trend`, `signal`。
 
-必需运行时工具：`get_market_positioning_snapshot`。
+必需运行时工具：`get_market_positioning_snapshot`, `get_rke_research_context`。
 
 提交 `mode=DIRECT`，只输出 `signal` 并省略 `components`；结论引用只放在 `signal.claim_refs`。
 
 必须输出 `claims`，不得输出顶层 `claim_refs`。每个 claim 必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` claim 还必须通过 `research_rule_refs` 引用允许的不透明标识。必需证据不足时拒绝本阶段，不得生成宏观输出；只有证据有效但相互冲突时，才能输出带证据引用的 `RISK_FLAG` 声明。不得伪造证据 ID、指纹、引用标识或跨运行引用。
+
+`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。
 
 <!-- runtime-evidence-contract:end -->

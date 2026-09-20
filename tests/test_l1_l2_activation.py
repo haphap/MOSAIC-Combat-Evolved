@@ -15,6 +15,7 @@ from mosaic.scorecard.l1_l2_activation import (
     write_l1_l2_active_manifests,
 )
 from mosaic.scorecard.l3_l4_preservation import validate_l3_l4_preservation_overlay
+from mosaic.rke.agent_research_context import MACRO_AGENTS
 from mosaic.scorecard.macro_europe_preservation import (
     validate_macro_europe_preservation_overlay,
 )
@@ -100,7 +101,9 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
             continue
         expected = [
             *base_row["allowed_tools"],
-            *sorted(restored_by_agent.get(agent_id, set())),
+            *sorted(restored_by_agent.get(agent_id, set()) | (
+                {"get_rke_research_context"} if agent_id in MACRO_AGENTS else set()
+            )),
         ]
         assert active_by_agent[agent_id]["allowed_tools"] == expected
         assert active_by_agent[agent_id]["layer"] == base_row["layer"]
@@ -117,6 +120,9 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
     expected_overlay_surface.update(
         (agent_id, agent_id, "get_supply_chain_evidence")
         for agent_id in restored_by_agent
+    )
+    expected_overlay_surface.update(
+        (agent_id, agent_id, "get_rke_research_context") for agent_id in MACRO_AGENTS
     )
     assert added_surface == expected_overlay_surface
 

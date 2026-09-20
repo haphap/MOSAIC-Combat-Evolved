@@ -11,6 +11,8 @@ from typing import Any, Mapping, Sequence
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import load_jsonl_with_errors
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 LICENSE_REVIEW_PACKET_JSON_PATH = "registry/compliance/tushare_license_review_packet.json"
 LICENSE_REVIEW_PACKET_MD_PATH = "registry/compliance/tushare_license_review_packet.md"
@@ -62,22 +64,6 @@ class LicenseReviewPacket:
     @property
     def manual_review_required(self) -> bool:
         return bool(self.blockers) or self.pending_sources > 0 or self.approved_for_production_runtime < self.source_count
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
 
 
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
@@ -237,9 +223,12 @@ def render_license_review_packet_markdown(packet: LicenseReviewPacket) -> str:
     return "\n".join(lines)
 
 
-def write_license_review_packet(root: str | Path = ".") -> dict[str, str]:
+def write_license_review_packet(
+    root: str | Path = ".", *, packet: LicenseReviewPacket | None = None
+) -> dict[str, str]:
     root_path = Path(root)
-    packet = build_license_review_packet(root_path)
+    if packet is None:
+        packet = build_license_review_packet(root_path)
     json_result = _write_json(
         root_path / LICENSE_REVIEW_PACKET_JSON_PATH,
         {**asdict(packet), "manual_review_required": packet.manual_review_required},

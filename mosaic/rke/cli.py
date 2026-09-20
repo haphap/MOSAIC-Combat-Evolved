@@ -129,6 +129,10 @@ from .report_intelligence import (
     build_local_macro_strategy_report_sources,
     export_macro_agent_research_priors,
     merge_report_intelligence_batch_outputs,
+    migrate_tool_gap_reviews,
+    build_data_acquisition_proposals,
+    build_tool_design_proposals,
+    _read_tool_gap_facts,
     prepare_analytical_footprint_negative_examples,
     prepare_analytical_footprint_review_import,
     write_analytical_footprint_negative_example_approved_import,
@@ -1661,7 +1665,7 @@ def build_parser() -> argparse.ArgumentParser:
         "report-intelligence",
         help=(
             "Materialize Tushare report PDFs, convert with MinerU, and extract "
-            "Report Intelligence Loop objects with local vLLM."
+            "Report Intelligence Loop objects with local vLLM or NInfer."
         ),
     )
     report_intelligence.add_argument(
@@ -1756,13 +1760,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not call local vLLM; only materialize PDF/Markdown status.",
     )
     report_intelligence.add_argument(
+        "--derived-scope",
+        choices=("basic", "full"),
+        default="basic",
+        help="Basic writes extraction facts only; full explicitly rebuilds offline research artifacts.",
+    )
+    report_intelligence_mode = report_intelligence.add_mutually_exclusive_group()
+    report_intelligence_mode.add_argument(
         "--refresh-derived-only",
         action="store_true",
         help=(
-            "Recompute derived report-intelligence artifacts from existing "
+            "Refresh the selected scope (basic by default) from existing "
             "registry extraction outputs without downloading, converting, or "
             "calling local vLLM."
         ),
+    )
+    report_intelligence_mode.add_argument(
+        "--migrate-tool-gap-reviews", action="store_true",
+        help="Merge legacy private proposal reviews into tool gaps and archive the originals; preview with --dry-run.",
+    )
+    report_intelligence_mode.add_argument(
+        "--migrate-research-cases", action="store_true",
+        help="Recover coherent legacy arguments in footprints, preserving original files; preview with --dry-run.",
+    )
+    report_intelligence.add_argument(
+        "--dry-run", action="store_true", help="Preview a report-intelligence migration without writing files.",
+    )
+    report_intelligence_mode.add_argument(
+        "--show-tool-gap-review", choices=("data", "tool"),
+        help="Print a private review template view from tool gaps without persisting proposals.",
     )
     report_intelligence.add_argument(
         "--download-timeout-seconds",
@@ -1821,6 +1847,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     report_intelligence.add_argument(
+        "--llm-backend",
+        choices=("vllm", "ninfer"),
+        default="vllm",
+        help="Local chat backend request format. Defaults to vllm.",
+    )
+    report_intelligence.add_argument(
+        "--review-notes-file",
+        help="Private UTF-8 review notes for re-extraction; requires exactly one --source-id.",
+    )
+    report_intelligence.add_argument(
         "--vllm-base-url",
         help=(
             "OpenAI-compatible vLLM base URL. Defaults to "
@@ -1855,7 +1891,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-llm-output-tokens",
         type=int,
         default=4096,
-        help="Maximum output tokens per LLM extraction chunk. Defaults to 4096.",
+        help=(
+            "Maximum vLLM output tokens per extraction chunk. Defaults to 4096. "
+            "NInfer uses the remaining context capacity instead of this cap."
+        ),
     )
     report_intelligence.add_argument(
         "--qlib-etf-dir",
@@ -2479,8 +2518,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0
     if args.command == "audit-view":
-        paths = write_audit_trace_view(root)
         view = build_audit_trace_view(root)
+        paths = write_audit_trace_view(root, view=view)
         _print_json(
             {
                 "paths": paths,
@@ -2496,8 +2535,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.no_write:
             write_audit_trace_view(root)
             write_completion_audit(root)
-            write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
+        if not args.no_write:
+            write_master_plan_coverage_report(root, report=result)
         _print_json(
             {
                 **asdict(result),
@@ -2510,15 +2550,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0
     if args.command == "policy-doc-status":
-        write_policy_doc_validation_report(root)
         result = build_policy_doc_validation_report(root)
+        write_policy_doc_validation_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "schema-status":
-        if not args.no_write:
-            write_schema_validation_report(root)
-            write_rule_pack_validation_report(root)
         result = build_schema_validation_report(root)
+        if not args.no_write:
+            write_schema_validation_report(root, report=result)
+            write_rule_pack_validation_report(root)
         records = list(result.records)
         if args.failures_only:
             records = [
@@ -2538,8 +2578,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "rule-pack-status":
-        write_rule_pack_validation_report(root)
         result = build_rule_pack_validation_report(root)
+        write_rule_pack_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2549,8 +2589,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "prompt-status":
-        write_prompt_asset_validation_report(root)
         result = build_prompt_asset_validation_report(root)
+        write_prompt_asset_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2561,8 +2601,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.accepted else 2
     if args.command == "claim-status":
         write_claim_grounding_validation_report(root)
-        write_claim_variable_validation_report(root)
         result = build_claim_variable_validation_report(root)
+        write_claim_variable_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2572,22 +2612,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "source-status":
-        write_source_registry_validation_report(root)
         result = build_source_registry_validation_report(root)
+        write_source_registry_validation_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted_for_sandbox else 2
     if args.command == "source-text-status":
-        write_source_text_redaction_report(root)
         result = build_source_text_redaction_report(root)
+        write_source_text_redaction_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "validation-status":
-        write_validation_hardening_report(root)
-        write_statistical_significance_report(root)
-        write_experiment_validation_report(root)
         hardening = build_central_bank_validation_hardening_report()
+        write_validation_hardening_report(root, report=hardening)
         significance = build_central_bank_statistical_significance_report()
+        write_statistical_significance_report(root, report=significance)
         experiment_validation = build_experiment_validation_report(root)
+        write_experiment_validation_report(root, report=experiment_validation)
         accepted = (
             not hardening["horizon_metric_failures"]
             and not hardening["precision_failures"]
@@ -2612,8 +2652,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if accepted else 2
     if args.command == "experiment-status":
-        write_experiment_validation_report(root)
         result = build_experiment_validation_report(root)
+        write_experiment_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2623,19 +2663,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "monitoring-diagnostics":
-        write_production_monitor_diagnostics(root)
         result = build_production_monitor_diagnostics()
+        write_production_monitor_diagnostics(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "rollback-readiness":
-        result = write_rollback_readiness_report(root)
         report = build_rollback_readiness_report(root)
+        result = write_rollback_readiness_report(root, report=report)
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "promotion-status":
-        if not args.no_write:
-            write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)
+        if not args.no_write:
+            write_production_promotion_gate_report(root, report=result)
         _print_json(
             {
                 **asdict(result),
@@ -2644,14 +2684,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.paper_trading_allowed else 2
     if args.command == "promotion-dry-run":
-        if args.write_report:
-            write_promotion_dry_run_report(
-                root,
-                gold_input=args.gold_input,
-                footprint_input=args.footprint_input,
-                license_input=args.license_input,
-                lockbox_input=args.lockbox_input,
-            )
         result = build_promotion_dry_run_report(
             root,
             gold_input=args.gold_input,
@@ -2659,15 +2691,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             license_input=args.license_input,
             lockbox_input=args.lockbox_input,
         )
+        if args.write_report:
+            write_promotion_dry_run_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "gold-set-status":
-        write_gold_set_review_summary(root)
-        _print_json(asdict(summarize_gold_set_review(root)))
+        summary = summarize_gold_set_review(root)
+        write_gold_set_review_summary(root, summary=summary)
+        _print_json(asdict(summary))
         return 0
     if args.command == "gold-review-packet":
-        paths = write_gold_review_packet(root)
         packet = build_gold_review_packet(root)
+        paths = write_gold_review_packet(root, packet=packet)
         _print_json(
             {
                 "paths": paths,
@@ -2740,14 +2775,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "license-status":
-        write_source_license_review_summary(root)
-        _print_json(
-            _source_license_status_stdout(summarize_source_license_review(root))
-        )
+        summary = summarize_source_license_review(root)
+        write_source_license_review_summary(root, summary=summary)
+        _print_json(_source_license_status_stdout(summary))
         return 0
     if args.command == "license-review-packet":
-        paths = write_license_review_packet(root)
         packet = build_license_review_packet(root)
+        paths = write_license_review_packet(root, packet=packet)
         _print_json(
             {
                 "paths": paths,
@@ -2895,15 +2929,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = {
                 "path": str(root / "registry/handoffs/rke_operator_readiness_report.json")
             }
-            report = build_operator_readiness_report(
-                root,
-                write_supporting_artifacts=False,
-            )
+            payload = asdict(build_operator_readiness_report(root))
         else:
             result = write_operator_readiness_report(root)
-            report = build_operator_readiness_report(root)
-        _print_json({"path": result["path"], **asdict(report)})
-        return 0 if report.accepted else 2
+            payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+        _print_json({"path": result["path"], **payload})
+        return 0 if payload["accepted"] else 2
     if args.command == "review-progress":
         if args.review_kind and not (args.summary or args.actions_only):
             _print_json(
@@ -2993,6 +3024,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if not result.blockers else 2
     if args.command == "report-intelligence":
         _load_env_file(args.env_file)
+        if args.migrate_research_cases:
+            from .report_intelligence import migrate_research_cases
+            migration = migrate_research_cases(root=root, registry_dir=args.registry_dir, dry_run=args.dry_run)
+            _print_json(migration)
+            return 0 if migration["accepted"] else 2
+        if args.dry_run and not args.migrate_tool_gap_reviews:
+            _print_json({"accepted": False, "blockers": ["--dry-run requires --migrate-tool-gap-reviews or --migrate-research-cases"]})
+            return 2
+        if args.migrate_tool_gap_reviews:
+            migration = migrate_tool_gap_reviews(root=root, registry_dir=args.registry_dir, dry_run=args.dry_run)
+            _print_json(migration)
+            return 0 if migration["accepted"] else 2
+        if args.show_tool_gap_review:
+            blockers: list[str] = []
+            directory = resolve_report_intelligence_registry_dir(root, args.registry_dir)
+            try:
+                gaps = _read_tool_gap_facts(directory / "tool_gaps.jsonl", blockers=blockers)
+            except ValueError as exc:
+                _print_json({"accepted": False, "blockers": [str(exc)], "views": []})
+                return 2
+            builder = build_data_acquisition_proposals if args.show_tool_gap_review == "data" else build_tool_design_proposals
+            _print_json({"accepted": not blockers, "blockers": blockers,
+                         "views": builder(gaps) if not blockers else []})
+            return 2 if blockers else 0
         result = run_report_intelligence_refresh(
             ReportIntelligenceConfig(
                 root=root,
@@ -3013,6 +3068,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_convert=args.skip_convert,
                 skip_llm=args.skip_llm,
                 refresh_derived_only=args.refresh_derived_only,
+                derived_scope=args.derived_scope,
                 download_timeout_seconds=args.download_timeout_seconds,
                 mineru_command=args.mineru_command,
                 mineru_backend=args.mineru_backend,
@@ -3026,6 +3082,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or "http://127.0.0.1:8020/v1",
                 vllm_model=args.vllm_model
                 or os.environ.get("MOSAIC_RKE_VLLM_MODEL"),
+                llm_backend=args.llm_backend,
+                review_notes=Path(args.review_notes_file).read_text(encoding="utf-8")
+                if args.review_notes_file else "",
                 vllm_api_key=next(
                     (
                         os.environ[name.strip()]
@@ -3140,6 +3199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     root=root,
                     registry_dir=args.registry_dir,
                     refresh_derived_only=True,
+                    derived_scope="full",
                 )
             )
             result = {**result, "derived_refresh": asdict(refresh)}

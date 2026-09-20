@@ -1,12 +1,6 @@
 /**
  * Inline tool-call loop for Layer-1+ agent nodes (Plan §11.2 2B-3).
  *
- * Why a separate helper: ``runToolReportChain`` from 2A.2 assumes the loop
- * lives at the LangGraph level (analyst → ToolNode → analyst). 2B does not
- * yet have the graph wired, so each agent node runs its own bounded loop
- * here. 2E may convert this to a real LangGraph subgraph; the surface here
- * stays stable.
- *
  * Loop semantics:
  *   1. bind tools, invoke LLM with [system, ...messages]
  *   2. if no tool_calls → return content as the analysis text
@@ -38,7 +32,7 @@ import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
 import { extractLlmTokenUsage } from "./runtime.js";
-import type { ToolStatus } from "./runtime_evidence_types.js";
+import type { RkeCallOutcome, ToolStatus } from "./runtime_evidence_types.js";
 
 export interface AgentToolLoopCompletionState {
   readonly step: number;
@@ -68,6 +62,8 @@ export interface AgentToolLoopOptions {
   replayFullToolMaxChars?: number;
   /** Deterministic role-required evidence to collect before the first LLM turn. */
   initialToolCalls?: ReadonlyArray<AgentInitialToolCall>;
+  /** Reserve one of the three model calls for RKE when the role requires this evidence. */
+  reserveRkeQuery?: boolean;
   /** Optional projection of deterministic output before it becomes model-visible. */
   initialToolOutput?: (name: string, output: string) => string;
   /**
@@ -120,6 +116,7 @@ export interface AgentToolLoopResult {
 
 const DEFAULT_MAX_LOOPS = 6;
 const MAX_MODEL_TOOL_EXECUTIONS = 3;
+const RKE_TOOL_NAME = "get_rke_research_context";
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
 const DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS = 0;
 const PRIOR_TOOL_REPLAY_CHARS = 800;
@@ -293,8 +290,31 @@ export function toolCallFingerprint(name: string | undefined, args: unknown): st
   return `${toolName}#${hash}`;
 }
 
+function rkeCallOutcome(output: string, error?: unknown): RkeCallOutcome {
+  if (error !== undefined) {
+    if (error instanceof RpcError && error.method === "tools.call") {
+      const data = error.data as Record<string, unknown> | null;
+      if (data?.category === "authorization_rejected") return "authorization_rejected";
+      if (data?.reason_code === "RKE_CONTEXT_PREFLIGHT_FAILED") return "blocked";
+      if (error.code === INVALID_PARAMS) return "request_rejected";
+    }
+    return "execution_failed";
+  }
+  // Observations of the existing renderer, not a new acceptance gate. Changed or
+  // unrecognized output stays unclassified instead of being counted as success.
+  if (output.startsWith("## RKE research context for ")) {
+    const hasPrior = /^### Prior \S+$/m.test(output);
+    const empty = /^No matching RKE context was available for this agent\/request\.$/m.test(output);
+    if (hasPrior && !empty) return "available";
+    if (empty && !hasPrior) return "normal_empty";
+  }
+  return "returned_unclassified";
+}
+
 interface CachedToolResult {
   output: string;
+  dispatched: boolean;
+  rkeOutcome?: RkeCallOutcome;
   failed: boolean;
   fallback: boolean;
   asOf?: string;
@@ -320,6 +340,8 @@ function buildToolStatus(input: {
     call_id: input.callId,
     ...(input.agentInvocationId ? { agent_invocation_id: input.agentInvocationId } : {}),
     called: true,
+    dispatched: input.cached.dispatched && !input.cacheHit,
+    ...(input.cached.rkeOutcome ? { rke_outcome: input.cached.rkeOutcome } : {}),
     failed: input.cached.failed,
     missing: input.missing ?? false,
     fallback: input.cached.fallback,
@@ -356,6 +378,8 @@ function buildToolStatus(input: {
 
 function cachedToolResult(input: {
   name: string;
+  dispatched?: boolean;
+  error?: unknown;
   args: unknown;
   output: string;
   failed: boolean;
@@ -369,6 +393,15 @@ function cachedToolResult(input: {
   const status = input.failed ? "tool_failed" : input.fallback ? "fallback" : "current";
   return {
     output: input.output,
+    dispatched: input.dispatched ?? true,
+    ...(input.name === RKE_TOOL_NAME
+      ? {
+          rkeOutcome:
+            input.dispatched === false
+              ? "budget_not_executed"
+              : rkeCallOutcome(input.output, input.error),
+        }
+      : {}),
     failed: input.failed,
     fallback: input.fallback ?? false,
     ...(input.asOf ? { asOf: input.asOf } : {}),
@@ -395,6 +428,8 @@ function missingToolResult(name: string, args: unknown): CachedToolResult {
   const resultFingerprint = toolResultFingerprint(output);
   return {
     output,
+    dispatched: false,
+    ...(name === RKE_TOOL_NAME ? { rkeOutcome: "missing_tool" as const } : {}),
     failed: false,
     fallback: false,
     argsFingerprint,
@@ -585,10 +620,19 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let toolCacheHits = 0;
   let toolExecutions = 0;
   let modelToolExecutions = 0;
+  let rkeAttempted = false;
+  const reserveRkeSlot = () =>
+    opts.reserveRkeQuery === true && toolByName.has(RKE_TOOL_NAME) && !rkeAttempted;
   let promptTokens = 0;
   let completionTokens = 0;
   let llmElapsedMs = 0;
   const toolStatuses: ToolStatus[] = [];
+  const recordToolStatus = (status: ToolStatus) => {
+    toolStatuses.push(status);
+    if (status.rke_outcome) {
+      opts.onLog?.(`rke_call outcome=${status.rke_outcome} cache_hit=${Number(status.cache_hit)}`);
+    }
+  };
   // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
   const toolOutputCache = new Map<string, CachedToolResult>();
   const initialToolFingerprints = new Set<string>();
@@ -634,7 +678,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
         const cached = missingToolResult(name, call.args);
-        toolStatuses.push(
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id,
@@ -664,6 +708,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         continue;
       }
       toolExecutions++;
+      if (name === RKE_TOOL_NAME) {
+        rkeAttempted = true;
+        opts.onLog?.("rke_dispatch");
+      }
       let output: string;
       try {
         const bridgeTool = tool as Partial<BridgeStructuredTool>;
@@ -695,7 +743,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           ...(audit ? { audit } : resultAuthority ? { resultAuthority } : {}),
         });
         toolOutputCache.set(fingerprint, cached);
-        toolStatuses.push(
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id,
@@ -713,9 +761,15 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         }
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
-        const cached = cachedToolResult({ name, args: call.args, output, failed: true });
+        const cached = cachedToolResult({
+          name,
+          args: call.args,
+          output,
+          failed: true,
+          error: err,
+        });
         toolOutputCache.set(fingerprint, cached);
-        toolStatuses.push(
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id,
@@ -757,7 +811,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         : "\n\nHard tool-call budget: use at most 3 model-selected tool calls total. " +
           `The remaining budget is ${remainingModelToolExecutions}. ` +
           `Request no more than ${remainingModelToolExecutions} tool calls now; ` +
-          "when the remaining budget is 0, return the analysis without tool calls.";
+          "when the remaining budget is 0, return the analysis without tool calls." +
+          (reserveRkeSlot()
+            ? " One execution is reserved for get_rke_research_context until it has been attempted."
+            : "");
     const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke(
       [new SystemMessage(`${opts.systemMessage}${budgetDirective}`), ...replayMessages],
       opts.signal ? { signal: opts.signal } : undefined,
@@ -835,7 +892,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
         const cached = missingToolResult(name, call.args ?? {});
-        toolStatuses.push(
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id ?? `tool_call_${toolCalls}`,
@@ -861,7 +918,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         output = cachedOutput.output;
         toolCacheHits++;
         opts.onLog?.(`tool_cache_hit fingerprint=${fingerprint}`);
-        toolStatuses.push(
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id ?? `tool_call_${toolCalls}`,
@@ -872,19 +929,27 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             cacheHit: true,
           }),
         );
-      } else if (modelToolExecutions >= MAX_MODEL_TOOL_EXECUTIONS) {
-        output =
-          `Tool '${name}' not executed: model-selected tool-call budget exhausted ` +
-          `(${MAX_MODEL_TOOL_EXECUTIONS} total). Use already returned evidence and do not call more tools.`;
+      } else if (
+        modelToolExecutions >= MAX_MODEL_TOOL_EXECUTIONS ||
+        (reserveRkeSlot() &&
+          name !== RKE_TOOL_NAME &&
+          modelToolExecutions >= MAX_MODEL_TOOL_EXECUTIONS - 1)
+      ) {
+        const reserved = modelToolExecutions < MAX_MODEL_TOOL_EXECUTIONS;
+        output = reserved
+          ? `Tool '${name}' not executed: remaining model-selected execution is reserved for ${RKE_TOOL_NAME}. Request it before further discretionary tools.`
+          : `Tool '${name}' not executed: model-selected tool-call budget exhausted ` +
+            `(${MAX_MODEL_TOOL_EXECUTIONS} total). Use already returned evidence and do not call more tools.`;
         opts.onLog?.(output);
         const cached = cachedToolResult({
           name,
           args: call.args ?? {},
           output,
           failed: true,
+          dispatched: false,
         });
-        toolOutputCache.set(fingerprint, cached);
-        toolStatuses.push(
+        if (!reserved) toolOutputCache.set(fingerprint, cached);
+        recordToolStatus(
           buildToolStatus({
             name,
             callId: call.id ?? `tool_call_${toolCalls}`,
@@ -898,6 +963,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       } else {
         modelToolExecutions++;
         toolExecutions++;
+        if (name === RKE_TOOL_NAME) {
+          rkeAttempted = true;
+          opts.onLog?.("rke_dispatch");
+        }
         try {
           const auditedInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_AUDITED_TOOL_INVOKE];
           let raw: unknown;
@@ -926,7 +995,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             ...(audit ? { audit } : resultAuthority ? { resultAuthority } : {}),
           });
           toolOutputCache.set(fingerprint, cached);
-          toolStatuses.push(
+          recordToolStatus(
             buildToolStatus({
               name,
               callId: call.id ?? `tool_call_${toolCalls}`,
@@ -950,9 +1019,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             args: call.args ?? {},
             output,
             failed: true,
+            error: err,
           });
           toolOutputCache.set(fingerprint, cached);
-          toolStatuses.push(
+          recordToolStatus(
             buildToolStatus({
               name,
               callId: call.id ?? `tool_call_${toolCalls}`,

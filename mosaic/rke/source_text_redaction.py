@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import re
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -12,6 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .phase_minus1 import load_jsonl_with_errors
 from .registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES, PRIVATE_LOCAL_REGISTRY_PREFIXES
+
+from mosaic.rke.json_io import write_json as _write_json
 
 
 TUSHARE_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
@@ -73,25 +74,6 @@ class SourceTextRedactionReport:
     allowed_raw_text_globs: Sequence[str]
     blockers: Sequence[str]
     records: Sequence[SourceTextExposureRecord]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _split_mapping_rows(rows: Sequence[Any]) -> tuple[list[Mapping[str, Any]], tuple[int, ...]]:
@@ -246,7 +228,10 @@ def build_source_text_redaction_report(root: str | Path = ".") -> SourceTextReda
     )
 
 
-def write_source_text_redaction_report(root: str | Path = ".") -> dict[str, Any]:
+def write_source_text_redaction_report(
+    root: str | Path = ".", *, report: SourceTextRedactionReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_source_text_redaction_report(root_path)
+    if report is None:
+        report = build_source_text_redaction_report(root_path)
     return _write_json(root_path / SOURCE_TEXT_REDACTION_REPORT_PATH, asdict(report))

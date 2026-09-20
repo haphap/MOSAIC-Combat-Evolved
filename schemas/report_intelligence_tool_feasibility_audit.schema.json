@@ -3,6 +3,7 @@
   "title": "RKE Report Intelligence Tool Feasibility Audit",
   "type": "object",
   "required": [
+    "tool_gap_contract",
     "audit_id",
     "run_id",
     "as_of_datetime",
@@ -14,6 +15,7 @@
     "policy"
   ],
   "properties": {
+    "tool_gap_contract": {"const": "tool_gap_facts_v1"},
     "audit_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "as_of_datetime": {"type": "string", "minLength": 1},

@@ -22,6 +22,7 @@ from .monitoring import (
     validate_audit_trace,
 )
 from .p0 import (
+    CONFIDENCE_COMPONENTS,
     ConfidenceComponents,
     ResearchSourceMetadata,
     RuleAggregationPolicy,
@@ -196,13 +197,7 @@ def build_central_bank_runtime_output() -> RuntimeAgentOutput:
     confidence_trace = {
         "policy_ref": "confidence_policy.v1",
         "safe_default_function": "min_components_then_cap",
-        "component_order": (
-            "data_confidence",
-            "research_weight_confidence",
-            "empirical_validation_confidence",
-            "method_tool_confidence",
-            "regime_match_confidence",
-        ),
+        "component_order": CONFIDENCE_COMPONENTS,
         "components": asdict(confidence_components),
         "pre_cap_confidence": confidence.pre_cap_confidence,
         "confidence_cap": 0.64,

@@ -103,6 +103,7 @@ def seal_staged_query_source_receipt(
     body_descriptor = _validated_descriptor(descriptor)
     knowledge = _timestamp(knowledge_available_at, "knowledge_available_at")
     captured = _timestamp(captured_at, "captured_at")
+    _validate_pit_times(body_descriptor, knowledge, captured)
     upstream = [
         _required_sha256(value, "upstream_evidence_hashes")
         for value in upstream_evidence_hashes
@@ -126,13 +127,7 @@ def seal_staged_query_source_receipt(
         "eligible": not blockers,
         "blocker_codes": blockers,
     }
-    receipt = {**body, "receipt_hash": canonical_hash(body)}
-    validate_staged_query_source_receipt(
-        receipt,
-        expected_descriptor=body_descriptor,
-        require_eligible=False,
-    )
-    return receipt
+    return {**body, "receipt_hash": canonical_hash(body)}
 
 
 def validate_staged_query_source_receipt(
@@ -181,25 +176,31 @@ def validate_staged_query_source_receipt(
 
     knowledge = _timestamp(receipt["knowledge_available_at"], "knowledge_available_at")
     captured = _timestamp(receipt["captured_at"], "captured_at")
+    _validate_pit_times(expected, knowledge, captured)
+    if require_eligible and not eligible:
+        raise ValueError("staged source receipt is not PIT eligible")
+    return receipt_hash
+
+
+def _validate_pit_times(
+    descriptor: Mapping[str, Any], knowledge: datetime, captured: datetime
+) -> None:
     if captured < knowledge:
         raise ValueError("staged source receipt capture precedes knowledge availability")
-    if expected["pit_mode"] == "OBSERVED_LIVE" and captured != knowledge:
+    if descriptor["pit_mode"] == "OBSERVED_LIVE" and captured != knowledge:
         raise ValueError(
             "staged source receipt OBSERVED_LIVE capture time must equal "
             "knowledge_available_at"
         )
     as_of_end = datetime.combine(
-        date.fromisoformat(expected["as_of"]), time.max, tzinfo=_SHANGHAI
+        date.fromisoformat(descriptor["as_of"]), time.max, tzinfo=_SHANGHAI
     )
     late_observed_policy = (
-        expected["route_id"] == "official.govcn_policy"
-        and expected["pit_mode"] == "OBSERVED_LIVE"
+        descriptor["route_id"] == "official.govcn_policy"
+        and descriptor["pit_mode"] == "OBSERVED_LIVE"
     )
     if not late_observed_policy and knowledge > as_of_end:
         raise ValueError("staged source receipt knowledge is after query as_of")
-    if require_eligible and not eligible:
-        raise ValueError("staged source receipt is not PIT eligible")
-    return receipt_hash
 
 
 __all__ = [

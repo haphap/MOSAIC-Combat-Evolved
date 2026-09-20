@@ -12,7 +12,8 @@
 <!-- cohort-behavior:end -->
 
 ## 分析要求
-必须调用且只能调用 get_commodity_conditions_snapshot，严格使用 as-of 可见数据。
+当前事实必须来自 get_commodity_conditions_snapshot，严格使用 as-of 可见数据。
+运行时另提供 get_rke_research_context 历史研究案例，仅作为研究先验，不是当前数据，不能直接生成交易；用于学习研究问题、推理和历史 regime；不得作为当前数值事实、信号或 accepted claim 的证据，必须用本次快照独立验证。空结果不妨碍快照分析。
 检查变化、预期差、证据冲突和对 A 股的传导。
 get_commodity_conditions_snapshot 是五个已登记 commodity families 的 PIT 合约、结算与库存 evidence，不是 A 股信号。仅在字段存在时使用 actual、previous 与 as-of，不得虚构 expected、surprise 或工具未提供的宏观因果；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：energy 只用 SC@INE 的原油期限结构与库存判断能源成本及其对 A 股利润率的传导；industrial_metals 只用 CU@SHFE 判断工业需求与制造成本；gold 只用 AU@SHFE 判断避险与实际利率敏感的风险偏好，不得超出工具实际字段声称宏观因果；agriculture_food 只用 C@DCE 与 M@DCE 判断粮食及饲料成本。仅当对应 family 存在实际两个合约的数据时，才可称 contango 或 backwardation。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_commodity_conditions_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立、fixed non-overlapping、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论。
 按运行时 schema 提交 mode=COMPONENTS。
@@ -27,10 +28,12 @@ components 必须恰好为：energy、industrial_metals、gold、agriculture_foo
 
 输出字段包括：`mode`, `claims`, `key_drivers`, `trend`, `components`。
 
-必需运行时工具：`get_commodity_conditions_snapshot`。
+必需运行时工具：`get_commodity_conditions_snapshot`, `get_rke_research_context`。
 
 提交 `mode=COMPONENTS`，只输出 `components` 并省略 `signal`；每个组件必须在 `components[].claim_refs` 中至少引用一个不与其他组件共享的 claim，且该 claim 的 `structured_conclusion.subject` 必须精确等于组件的 `component` id。
 
 必须输出 `claims`，不得输出顶层 `claim_refs`。每个 claim 必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` claim 还必须通过 `research_rule_refs` 引用允许的不透明标识。必需证据不足时拒绝本阶段，不得生成宏观输出；只有证据有效但相互冲突时，才能输出带证据引用的 `RISK_FLAG` 声明。不得伪造证据 ID、指纹、引用标识或跨运行引用。
+
+`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。
 
 <!-- runtime-evidence-contract:end -->

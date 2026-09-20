@@ -257,11 +257,11 @@ def _build(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def test_gate_d_candidate_closes_26_stages_199_bindings_and_shared_cio_prompt():
+def test_gate_d_candidate_closes_26_stages_207_bindings_and_shared_cio_prompt():
     data = _fixture()
     candidate = _build(data)
     assert candidate["runtime_stage_count"] == 26
-    assert candidate["binding_count"] == 199
+    assert candidate["binding_count"] == 207
     assert len(candidate["stage_evidence"]) == 26
     proposal = next(
         row
@@ -285,6 +285,22 @@ def test_gate_d_candidate_closes_26_stages_199_bindings_and_shared_cio_prompt():
     Draft202012Validator(candidate_schema).validate(candidate)
 
 
+@pytest.mark.parametrize("field", [
+    "privacy_contract_hash", "materializer_contract_hash",
+    "route_contract_hash", "output_semantics_hash",
+])
+def test_gate_d_rke_argument_migration_preserves_other_contract_fields(field):
+    data = _fixture()
+    binding = next(row for row in data["bundle"]["binding_manifest"]["bindings"]
+                   if row["agent_id"] == "ackman" and row["tool_id"] == "get_rke_research_context")
+    binding[field] = HASH
+    with pytest.raises(ValueError, match="active binding mapping mismatch"):
+        build_knot_gate_d_fixture_evidence(
+            root=ROOT, capability_bundle=data["bundle"],
+            training_projections_by_stage=data["projections"],
+        )
+
+
 def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
     data = _fixture()
     evidence = build_knot_gate_d_fixture_evidence(
@@ -293,7 +309,7 @@ def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
         training_projections_by_stage=data["projections"],
     )
     assert evidence["significance_fixture_count"] == 119
-    assert evidence["runtime_binding_count"] == 199
+    assert evidence["runtime_binding_count"] == 207
     assert evidence["projection_count"] == 26
     assert evidence["source_route_migration_count"] == 6
     assert evidence["source_route_migrations_hash"] == canonical_hash(

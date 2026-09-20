@@ -672,7 +672,7 @@ def test_contract_check_blocks_rke_prior_as_current_data(
     assert "production_rke_input_forbidden" in result["blocked_reasons"]
     assert (
         "unapproved_tool_mentioned:get_rke_research_context"
-        in result["blocked_reasons"]
+        not in result["blocked_reasons"]
     )
 
 

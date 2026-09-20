@@ -70,6 +70,7 @@ from mosaic.rke.report_intelligence import (
     build_source_performance_profiles,
     build_stock_context_snapshots,
     build_data_acquisition_proposals,
+    backfill_stock_market_cap_tool_gap,
     build_domain_claim_ratings,
     build_tool_design_proposals,
     build_viewpoint_performance_profiles,
@@ -147,7 +148,36 @@ def test_report_intelligence_entry_calendar_index_uses_explicit_lag():
     )
 
 
-def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
+@pytest.mark.parametrize("answer", [
+    '{"forecast_claims": [{"claim_text": "Maintain "buy"", "target": {"target_type": "stock"}}]}',
+    '{"forecast_claims": [{"target": {"target_type": "stock"}}], "analytical_footprints": [',
+])
+def test_extractor_rejects_broken_document_instead_of_returning_nested_object(answer):
+    from mosaic.rke.report_intelligence import _extract_json_object
+
+    with pytest.raises(ValueError, match="llm_output_invalid_json"):
+        _extract_json_object(answer)
+    assert _extract_json_object('```json\n{"forecast_claims": []}\n```') == {
+        "forecast_claims": []
+    }
+
+
+def test_full_report_does_not_inherit_final_disclaimer_section():
+    from mosaic.rke.report_intelligence import _section_context_from_chunk
+
+    assert _section_context_from_chunk(
+        "# Investment outlook\nDemand supports expansion.\n# Disclaimer\nTerms.",
+        "2026-01-01",
+    ) == {}
+    assert _section_context_from_chunk("# Outlook\nDemand grows.", "2026-01-01") == {
+        "section_title": "Outlook"
+    }
+
+
+@pytest.mark.parametrize("backend", ["vllm", "ninfer"])
+@pytest.mark.parametrize("finish_reason", ["stop", "length"])
+@pytest.mark.parametrize("model", ["qwen3.8-27b", "qwen3.6-35b-a3b"])
+def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, finish_reason, model):
     seen: dict[str, object] = {}
 
     class _Response:
@@ -162,6 +192,7 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
                 {
                     "choices": [
                         {
+                            "finish_reason": finish_reason,
                             "message": {
                                 "content": json.dumps(
                                     {
@@ -201,112 +232,118 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
         0,
         1,
         base_url="https://example.test/v1",
-        model="mimo-v2.5-pro",
+        model=model,
         api_key="secret-token",
+        backend=backend,
+        max_output_tokens=16384,
+        review_notes="Recheck the valuation method against the original report.",
     )
 
-    assert result["status"] == "ok"
-    assert result["model"] == "mimo-v2.5-pro"
+    assert result["status"] == ("blocked" if finish_reason == "length" else "ok")
+    if finish_reason == "length":
+        assert result["blocker"] == "vllm_output_length_limit"
+    assert result["model"] == model
     assert seen["url"] == "https://example.test/v1/chat/completions"
     assert seen["authorization"] == "Bearer secret-token"
-    assert seen["payload"]["model"] == "mimo-v2.5-pro"
+    assert seen["payload"]["model"] == model
+    assert "Recheck the valuation method" in seen["payload"]["messages"][1]["content"]
+    assert "原文 Markdown" in seen["payload"]["messages"][1]["content"]
+    if backend == "ninfer":
+        assert "chat_template_kwargs" not in seen["payload"]
+        assert "response_format" not in seen["payload"]
+        assert seen["payload"]["presence_penalty"] == 0
+        if model == "qwen3.6-35b-a3b":
+            assert seen["payload"]["enable_thinking"] is True
+            assert "reasoning_effort" not in seen["payload"]
+        else:
+            assert seen["payload"]["reasoning_effort"] == "xhigh"
+        assert seen["payload"]["max_tokens"] == 2**31 - 1
+    else:
+        assert seen["payload"]["response_format"] == {"type": "json_object"}
+        assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
+        assert seen["payload"]["max_tokens"] == 16384
 
 
-def test_user_prompt_requires_context_synthesized_forecast_claims():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-PROMPT",
-            "title": "测试报告",
-            "publish_date": "2026-06-11",
-        },
-        "股债市场双向波动，理财子通过多资产组合应对波动并获取超额收益。",
-        "SRC-PROMPT:chunk-1",
-        0,
-        1,
+def test_review_notes_are_limited_to_one_source():
+    for source_ids in ((), ("SRC-1", "SRC-2")):
+        with pytest.raises(ValueError, match="exactly one source_id"):
+            ReportIntelligenceConfig(source_ids=source_ids, review_notes="Missing method.")
+    cfg = ReportIntelligenceConfig(source_ids=("SRC-1",), review_notes="Missing method.")
+    assert cfg.review_notes == "Missing method."
+
+
+@pytest.mark.parametrize("max_chunks, truncated", [(8, False), (1, True)])
+def test_extraction_coverage_ignores_chunk_boundary_whitespace(max_chunks, truncated):
+    from mosaic.rke.report_intelligence import _extract_for_markdown
+
+    seen = []
+
+    def extract(row, text, *args):
+        seen.append(text)
+        return {"status": "ok", "model": "synthetic", "payload": {}}
+
+    result = _extract_for_markdown(
+        {"source_id": "S"}, "alpha\n\nbeta\n\ngamma", run_id="TEST",
+        extractor=extract, chunk_chars=8, max_chunks=max_chunks,
     )
-
-    assert "compact synthesis over the full supported report context" in prompt
-    assert "does not need to be a verbatim sentence" in prompt
-    assert "For Chinese source text, output claim_text in Chinese" in prompt
-    assert "under <macro regime if present>" in prompt
-    assert "finance-relevant target impact" in prompt
-    assert "analytical_footprints, not forecast_claims" in prompt
-    assert "pure historical/statistical descriptions" in prompt
-    assert "Check report temporal context before leaving horizon empty" in prompt
-    assert "90/180/360 days" in prompt
-    assert "2026-2028年" in prompt
-    assert "metric_proxy_mapping" in prompt
-    assert "stock_forward_return" in prompt
-    assert "Do not merge macro regime, industry-cycle regime" in prompt
-    assert "company labs reaching designed utilization" in prompt
-    assert "Make the economic mechanism explicit" in prompt
-    assert "price/cost pass-through" in prompt
-    assert "macro regime" in prompt
-    assert "Emit at most two forecast_claims for this chunk" in prompt
-    assert "Prefer fewer, higher value claims" in prompt
-    assert "do not leave indicator_mentions empty" in prompt
-    assert "canonical metric candidate" in prompt
-    assert "industry-cycle regime" in prompt
-    assert "rate-cut cycle" in prompt
-    assert "global copper supply is structurally tight" in prompt
-    assert "Direct macro market forecasts are valid forecast_claims" in prompt
-    assert "forecast_type='macro_series_directional'" in prompt
-    assert "forecast_type='macro_curve_directional'" in prompt
-    assert "US_2S10S" in prompt
-    assert "CN_US_10Y_SPREAD" in prompt
-    assert "bond_yield_level" in prompt
-    assert "yield_curve_slope" in prompt
+    assert result[-1] is truncated
+    assert seen == (["alpha"] if truncated else ["alpha", "beta", "gamma"])
 
 
-def test_user_prompt_includes_stock_subject_metadata_for_stock_reports():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-STOCK-SUBJECT",
-            "title": "方大新材点评报告",
-            "publish_date": "2026-06-11",
-            "report_type": "个股研报",
-            "ts_code": "920163.BJ",
-            "abstract": "方大新材(920163)\n高端复合材料业务持续放量。",
-        },
-        "公司高端复合材料业务持续放量，预计2026-2028年利润增长。",
-        "SRC-STOCK-SUBJECT:chunk-1",
-        0,
-        1,
+def test_markdown_repetition_counts_content_instead_of_chart_wrapper_tags():
+    from mosaic.rke.report_intelligence import _markdown_repeated_line_noise
+
+    charts = "\n".join(
+        f"<details>\n<summary>line</summary>\n独立图表观测内容{i}\n</details>"
+        for i in range(12)
     )
-
-    assert '"stock_subject"' in prompt
-    assert "方大新材" in prompt
-    assert "920163.BJ" in prompt
-    assert "Do not output a stock forecast_claim whose subject is only 公司" in prompt
+    assert not _markdown_repeated_line_noise(charts)
+    assert _markdown_repeated_line_noise("重复且缺乏独立信息的正文\n" * 12)
 
 
-def test_user_prompt_includes_report_context_metadata():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-CONTEXT",
-            "title": "2026年度宏观策略",
-            "publish_date": "2025-11-24",
-            "report_context": {
-                "benchmark_context": {
-                    "default_benchmark": {
-                        "benchmark_type": "market_index",
-                        "benchmark_id": "沪深300",
-                    }
-                },
-                "rating_context": {"rating_terms": ["买入"]},
-            },
-            "section_context": {"section_title": "展望2026年"},
-        },
-        "展望2026年，A股风险偏好有望修复。",
-        "SRC-CONTEXT:chunk-1",
-        0,
-        1,
+@pytest.mark.parametrize("source, market, asset_class", [
+    ({"source_type": "local_macro_strategy_report"}, "unknown", "unknown"),
+    ({"source_type": "local_macro_strategy_report", "market": "US", "asset_class": "bond"},
+     "US", "bond"),
+    ({"source_type": "tushare_research_report"}, "CN_A_SHARE", "equity"),
+])
+def test_report_market_preserves_source_scope(source, market, asset_class, tmp_path):
+    from mosaic.rke.report_intelligence import _metadata_record, _normalize_footprints
+
+    row = {"source_id": "SOURCE", "publish_date": "2025-01-01", **source}
+    metadata = _metadata_record(
+        row, run_id="TEST", root_path=tmp_path, pdf_result={}, markdown_result={},
+        llm_status="processed", llm_model="synthetic", chunk_count=1,
+        truncated_chunks=False, blockers=[],
     )
+    footprints = _normalize_footprints(
+        {"analytical_footprints": [{"topic": "Source argument"}]}, row,
+        run_id="TEST", model="synthetic", report_id=metadata["report_id"],
+        chunk_span_id="SOURCE:chunk-001",
+    )
+    assert metadata["market"] == footprints[0]["market"] == market
+    assert metadata["asset_class"] == asset_class
 
-    assert '"report_context"' in prompt
-    assert '"section_context"' in prompt
-    assert "沪深300" in prompt
-    assert "展望2026年" in prompt
+
+def test_user_prompt_preserves_original_text_and_excludes_derived_evidence():
+    markdown = "公司项目名为“高性能材料”，预计2027年利润增长。\n原文保留不改写。"
+    prompt = _user_prompt(
+        {"source_id": "SRC-PROMPT", "title": "公司报告", "ts_code": "000001.SZ",
+         "publish_date": "2026-06-11", "abstract": "不能当作原文的摘要",
+         "report_context": {"rating_context": {"rating_terms": ["未在正文出现的评级"]}}},
+        markdown, "SRC-PROMPT:chunk-1", 0, 1,
+    )
+    metadata_text, original = prompt.split("Original Markdown chunk:\n", 1)
+    assert original == markdown
+    metadata = json.loads(metadata_text.split(
+        "Report metadata is for source identification only, not evidence:\n", 1,
+    )[1])
+    assert metadata["source_id"] == "SRC-PROMPT"
+    assert metadata["ts_code"] == "000001.SZ"
+    assert metadata["chunk_span_id"] == "SRC-PROMPT:chunk-1"
+    assert "abstract" not in metadata and "report_context" not in metadata
+    assert "不能当作原文的摘要" not in prompt
+    assert "未在正文出现的评级" not in prompt
 
 
 def test_select_report_forecast_claims_caps_and_preserves_source_order():
@@ -469,7 +506,7 @@ def test_report_intelligence_caps_forecast_claims_per_report(tmp_path: Path):
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -1818,6 +1855,26 @@ def test_normalize_forecast_claims_binds_stock_subject_from_report_metadata():
     assert record["extraction_quality"]["stock_subject_bound_from_metadata"] is True
     assert record["extraction_quality"]["claim_text_stock_subject_bound"] is True
     assert record["extraction_quality"]["analyst_claim_stock_subject_bound"] is True
+
+
+def test_forecast_subject_binding_preserves_explicit_different_stock():
+    text = "公司订单增长带动产能利用率提升，预计2026年利润增长。"
+    records = _normalize_forecast_claims(
+        {"forecast_claims": [{
+            "claim_text": text,
+            "claim_provenance": "source_grounded",
+            "target": {"target_type": "stock", "target_id": "830001.BJ"},
+            "direction": "positive",
+        }]},
+        {"source_id": "SRC-HISTORICAL", "publish_date": "2025-02-28",
+         "ts_code": "920001.BJ", "report_type": "个股研报"},
+        run_id="RUN-HISTORICAL", model="fake", report_id="RPT-HISTORICAL",
+        chunk_span_id="SRC-HISTORICAL:chunk-1",
+    )
+    assert len(records) == 1
+    assert records[0]["target"]["target_id"] == "830001.BJ"
+    assert records[0]["claim_text"] == text
+    assert records[0]["analyst_claim"] == text
 
 
 def test_normalize_forecast_claims_infers_chinese_relative_and_qualitative_horizon():
@@ -3673,6 +3730,7 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -4977,6 +5035,15 @@ def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int)
             "analytical_footprints": [
                 {
                     "topic": "liquidity_impulse_and_funding_stress_confirmation",
+                    "research_case": {
+                        "question": "Liquidity transmission to risk appetite",
+                        "historical_regime": "",
+                        "reasoning_chain": ["Net injections ease funding conditions",
+                                            "Lower funding stress supports risk appetite"],
+                        "evidence": ["7日公开市场净投放", "DR007与政策利率利差"],
+                        "assumptions": [], "invalidation_conditions": ["资金面重新收紧"],
+                        "conclusion": "High beta may outperform CSI300",
+                    },
                     "indicator_mentions": [
                         {
                             "indicator_text": "7日公开市场净投放",
@@ -5180,7 +5247,7 @@ def test_report_intelligence_derived_refresh_refuses_clean_checkout_overwrite(
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.blocker_count == 1
@@ -5207,7 +5274,7 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.blocker_count == 1
@@ -5217,13 +5284,85 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
     assert readiness_path.read_text(encoding="utf-8") == before_readiness
 
 
+@pytest.mark.parametrize("forecast_content", ["not-json\n", "[]\n"])
+def test_basic_derived_refresh_preserves_invalid_inputs(tmp_path: Path, forecast_content):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    _write_jsonl(registry / "report_metadata.jsonl", [{"report_id": "R1"}])
+    forecast = registry / "forecast_claims.jsonl"
+    forecast.write_text(forecast_content, encoding="utf-8")
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in registry.iterdir()}
+    result = run_report_intelligence_derived_refresh(ReportIntelligenceConfig(root=tmp_path))
+    assert result.blocker_count > 0
+    assert result.outputs == {}
+    assert result.outcome_label_rows is None
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in registry.iterdir()}
+
+
+def test_report_intelligence_basic_refresh_skips_research_chain(tmp_path: Path, monkeypatch):
+    import mosaic.rke.report_intelligence as ri
+
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True, exist_ok=True)
+    preserved = [registry / name for name in (
+        "extraction_report.json", "recipe_paper_trading_summary.json", "confidence_impact_monitor.json",
+    )]
+    for path in preserved:
+        path.write_text('{"run_id":"older-full-refresh"}\n', encoding="utf-8")
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+    def unrequested(*_args, **_kwargs):
+        raise AssertionError("basic refresh entered an unrequested research stage")
+
+    for name in ("build_forecast_ledger_records", "build_recipe_paper_trading_runs",
+                 "build_prompt_mutation_candidates", "build_source_performance_profiles",
+                 "build_report_intelligence_monitoring_report"):
+        monkeypatch.setattr(ri, name, unrequested)
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader, converter=_fake_converter, llm_extractor=_fake_llm,
+    )
+    assert result.blocker_count == 0
+    assert result.refresh_scope == "basic"
+    assert result.metadata_rows == 1
+    assert result.forecast_claim_rows > 0
+    assert result.outcome_label_rows is None
+    assert result.analysis_recipe_rows is None
+    assert set(result.outputs) == {
+        "report_metadata", "forecast_claims", "analytical_footprints", "metric_candidates",
+        "method_patterns", "tool_gaps", "processing_status", "report_fingerprint_manifest",
+    }
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+    repeated = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader, converter=_fake_converter, llm_extractor=unrequested,
+    )
+    assert repeated.selected_reports == 0
+    assert repeated.blocker_count == 0
+
+    # Optional extracted research facts are not prerequisites for basic derived refresh.
+    for name in ("analytical_footprints.jsonl", "metric_candidates.jsonl", "method_patterns.jsonl", "tool_gaps.jsonl"):
+        (registry / name).unlink()
+    metadata = registry / "report_metadata.jsonl"
+    metadata_before = (metadata.read_bytes(), metadata.stat().st_mtime_ns)
+    refreshed = run_report_intelligence_derived_refresh(ReportIntelligenceConfig(root=tmp_path))
+    assert refreshed.blocker_count == 0
+    assert refreshed.refresh_scope == "basic"
+    assert refreshed.analytical_footprint_rows is None
+    assert set(refreshed.outputs) == {"forecast_claims"}
+    assert metadata_before == (metadata.read_bytes(), metadata.stat().st_mtime_ns)
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+
 def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     tmp_path: Path,
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -5241,9 +5380,9 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert result.forecast_ledger_rows == 1
     assert result.outcome_label_rows == 0
     assert result.tool_coverage_match_rows == 2
-    assert result.data_acquisition_proposal_rows == 1
-    assert result.tool_design_proposal_rows == 1
-    assert result.analysis_recipe_rows == 1
+    assert "data_acquisition_proposals" not in result.outputs
+    assert "tool_design_proposals" not in result.outputs
+    assert result.analysis_recipe_rows == 0
     assert result.prompt_mutation_candidate_rows >= 1
     assert result.weighted_research_context_rows == 1
     assert result.runtime_tool_gap_observation_rows == 1
@@ -5507,9 +5646,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     ]
     assert tool_gaps[0]["owner"] == "data_engineering"
 
-    data_proposals = _read_jsonl(
-        tmp_path / "registry/report_intelligence/data_acquisition_proposals.jsonl"
-    )
+    assert not (tmp_path / "registry/report_intelligence/data_acquisition_proposals.jsonl").exists()
+    data_proposals = build_data_acquisition_proposals(tool_gaps)
     assert data_proposals[0]["decision_status"] == "pending_review"
     assert data_proposals[0]["owner"] == "data_engineering"
     assert data_proposals[0]["license_status"] == "pending_review"
@@ -5518,9 +5656,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     )
     assert data_proposals[0]["source_tool_gap_priority"] == "high"
 
-    tool_proposals = _read_jsonl(
-        tmp_path / "registry/report_intelligence/tool_design_proposals.jsonl"
-    )
+    assert not (tmp_path / "registry/report_intelligence/tool_design_proposals.jsonl").exists()
+    tool_proposals = build_tool_design_proposals(tool_gaps)
     assert tool_proposals[0]["status"] == "shadow_build_requested"
     assert tool_proposals[0]["owner"] == "data_engineering"
     assert tool_proposals[0]["license_status"] == "pending_review"
@@ -5530,7 +5667,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_proposals[0]["engineering_estimate"] == "high"
 
     recipes = _read_jsonl(tmp_path / "registry/report_intelligence/analysis_recipes.jsonl")
-    assert recipes[0]["runtime_mode"] == "shadow_only"
+    assert recipes == []
 
     weighted_contexts = _read_jsonl(
         tmp_path / "registry/report_intelligence/weighted_research_contexts.jsonl"
@@ -5641,7 +5778,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_feasibility_audit["accepted"] is True
     assert tool_feasibility_audit["blocker_count"] == 0
     assert {row["check_id"] for row in tool_feasibility_audit["checks"]} == {
-        f"RI-TOOL-{index:02d}" for index in range(7)
+        f"RI-TOOL-{index:02d}" for index in (0, 1, 2, 5, 6)
     }
     assert tool_feasibility_audit["checks"][1]["evidence"][
         "metric_candidate_rows"
@@ -5649,9 +5786,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_feasibility_audit["checks"][2]["evidence"][
         "non_exact_coverage_rows"
     ] == 1
-    assert tool_feasibility_audit["checks"][4]["evidence"][
-        "minimum_shadow_runtime_days"
-    ] == 60
+    assert tool_feasibility_audit["tool_gap_contract"] == "tool_gap_facts_v1"
 
     recipe_validation_audit = json.loads(
         (
@@ -5665,10 +5800,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert recipe_validation_audit["checks"][1]["evidence"][
         "analysis_recipe_rows"
-    ] == 1
+    ] == 0
     assert recipe_validation_audit["checks"][2]["evidence"][
         "validation_status_counts"
-    ] == {"candidate": 1}
+    ] == {}
     assert recipe_validation_audit["checks"][4]["evidence"][
         "validation_candidate_recipe_count"
     ] == 0
@@ -5731,12 +5866,12 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         in phase_g["evidence_artifacts"]
     )
     assert phase_g["evidence_counts"]["paper_trading_recipe_count"] == 0
-    assert phase_g["evidence_counts"]["shadow_paper_trading_run_count"] == 1
+    assert phase_g["evidence_counts"]["shadow_paper_trading_run_count"] == 0
     assert phase_g["evidence_counts"]["paper_trading_validation_pass_count"] == 0
-    assert phase_g["evidence_counts"]["paper_trading_blocked_count"] == 1
+    assert phase_g["evidence_counts"]["paper_trading_blocked_count"] == 0
     assert alpha_decay["unmonitored_production_recipe_ids"] == []
     confidence_monitoring = monitoring["confidence_impact_monitoring"]
-    assert confidence_monitoring["observation_count"] == 1
+    assert confidence_monitoring["observation_count"] == 0
     assert confidence_monitoring["paper_trading_validated_recipe_count"] == 0
     assert confidence_monitoring["production_decision_impact_allowed"] is False
 
@@ -5744,21 +5879,13 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         tmp_path
         / "registry/report_intelligence/recipe_paper_trading_runs.jsonl"
     )
-    assert len(paper_trading_runs) == 1
-    assert paper_trading_runs[0]["paper_trading_status"] == "blocked"
-    assert paper_trading_runs[0]["production_decision_impact_allowed"] is False
-    assert {
-        "no_direct_recipe_outcome_binding",
-        "insufficient_effective_n",
-    } <= set(paper_trading_runs[0]["blocked_reasons"])
+    assert paper_trading_runs == []
 
     confidence_observations = _read_jsonl(
         tmp_path
         / "registry/report_intelligence/confidence_impact_observations.jsonl"
     )
-    assert confidence_observations[0]["confidence_delta"] == 0.0
-    assert confidence_observations[0]["drift_status"] == "paper_trading_blocked"
-    assert confidence_observations[0]["recommended_action"] == "keep_shadow"
+    assert confidence_observations == []
 
     prompt_candidates = _read_jsonl(
         tmp_path
@@ -5766,8 +5893,6 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     )
     assert prompt_candidates
     assert {
-        "recipe_paper_trading_rule",
-        "confidence_gate_rule",
         "tool_gap_prioritization_rule",
     } <= {row["candidate_type"] for row in prompt_candidates}
     assert all(row["production_prompt_change_allowed"] is False for row in prompt_candidates)
@@ -5776,6 +5901,25 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
     assert source_id not in candidate_dump
+
+    from mosaic.rke.schema_validation import validate_json_schema_artifact
+
+    for name in ("tool_feasibility_audit", "monitoring_report", "patch_v1_5_coverage_report", "recipe_paper_trading_summary"):
+        schema_path = f"schemas/report_intelligence_{name}.schema.json"
+        (tmp_path / "schemas").mkdir(exist_ok=True)
+        shutil.copyfile(schema_path, tmp_path / schema_path)
+        artifact_path = f"registry/report_intelligence/{name}.json"
+        record = validate_json_schema_artifact(root=tmp_path, schema_path=schema_path, artifact_path=artifact_path, artifact_kind="json")
+        assert record.accepted, record.failures
+        path = tmp_path / artifact_path
+        current = path.read_bytes()
+        historical = json.loads(current)
+        historical.pop("tool_gap_contract")
+        path.write_text(json.dumps(historical))
+        record = validate_json_schema_artifact(root=tmp_path, schema_path=schema_path, artifact_path=artifact_path, artifact_kind="json")
+        assert not record.accepted
+        assert any("tool_gap_contract" in failure for failure in record.failures)
+        path.write_bytes(current)
 
 
 def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_chunk(
@@ -5837,7 +5981,7 @@ def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_ch
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -5972,7 +6116,7 @@ def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_pr
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -6816,7 +6960,7 @@ def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -6921,6 +7065,7 @@ def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path)
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             exclude_processed_registry_dirs=("previous_batch",),
             limit=1,
@@ -6952,7 +7097,7 @@ def test_report_intelligence_reuses_cached_pdf_without_calling_downloader(
         raise AssertionError("cached PDF should not trigger downloader")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,), skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,), skip_llm=True),
         downloader=downloader,
         converter=_fake_converter,
     )
@@ -7002,7 +7147,7 @@ def test_report_intelligence_dedupes_duplicate_source_ids_before_download(
         return _fake_downloader(url, path, overwrite)
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, skip_llm=True),
         downloader=downloader,
         converter=_fake_converter,
     )
@@ -7063,6 +7208,7 @@ def test_report_intelligence_can_require_cached_markdown_before_limit(tmp_path: 
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             require_cached_markdown=True,
             limit=1,
@@ -7182,7 +7328,7 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
         raise AssertionError("LLM extraction must not run on low-quality Markdown")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=low_quality_converter,
         llm_extractor=llm_should_not_run,
@@ -7648,62 +7794,27 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
 
 
 def test_report_intelligence_method_patterns_keep_source_footprint_refs():
-    methods = _normalize_method_patterns(
-        {},
-        [
-            {
-                "footprint_id": "AFP-1",
-                "analysis_patterns": [
-                    "compare target return with benchmark",
-                    {"pattern": "check valuation and liquidity"},
-                ],
-                "target_agent_candidates": ["stock_agent"],
-            }
-        ],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-
-    assert len(methods) == 2
-    assert all(row["source_footprint_ids"] == ["AFP-1"] for row in methods)
-    assert {row["name"] for row in methods} == {
-        "compare target return with benchmark",
-        "check valuation and liquidity",
-    }
-    assert all(row["steps"] for row in methods)
+    footprints = [{
+        "footprint_id": "AFP-1", "target_agent_candidates": ["stock_agent"],
+        "research_case": {"question": "Compare return and valuation",
+                          "reasoning_chain": ["Compare benchmark returns", "Check valuation and liquidity"]},
+    }]
+    methods = _normalize_method_patterns(footprints, run_id="RIR-TEST", model="test-model")
+    assert len(methods) == 1
+    assert methods[0]["source_footprint_ids"] == ["AFP-1"]
+    assert methods[0]["steps"] == footprints[0]["research_case"]["reasoning_chain"]
 
 
-def test_report_intelligence_method_pattern_ids_use_canonical_key():
-    first = _normalize_method_patterns(
-        {
-            "method_patterns": [
-                {"name": "Peer comparison", "steps": ["compare peers"]},
-                {"name": "Peer-comparison", "steps": ["compare peer group"]},
-            ]
-        },
-        [],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-    reversed_order = _normalize_method_patterns(
-        {
-            "method_patterns": [
-                {"name": "Peer-comparison", "steps": ["compare peer group"]},
-                {"name": "Peer comparison", "steps": ["compare peers"]},
-            ]
-        },
-        [],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-
-    assert len(first) == 1
-    assert len(reversed_order) == 1
-    assert first[0]["canonical_name"] == "peer_comparison"
-    assert reversed_order[0]["canonical_name"] == "peer_comparison"
-    assert first[0]["method_pattern_id"] == reversed_order[0]["method_pattern_id"]
-    assert first[0]["steps"] == ["compare peers", "compare peer group"]
-    assert reversed_order[0]["steps"] == ["compare peer group", "compare peers"]
+def test_report_intelligence_method_pattern_ids_bind_ordered_reasoning():
+    footprints = [{"footprint_id": ident, "research_case": {
+        "question": "Peer comparison", "reasoning_chain": steps,
+    }} for ident, steps in (("A", ["Check accounting", "Compare peers"]),
+                           ("B", ["Compare peers", "Check accounting"]))]
+    first = _normalize_method_patterns(footprints, run_id="RIR-TEST", model="test-model")
+    reverse = _normalize_method_patterns(list(reversed(footprints)), run_id="RIR-TEST", model="test-model")
+    assert len(first) == 2
+    assert first == reverse
+    assert first[0]["method_pattern_id"] != first[1]["method_pattern_id"]
 
 
 def test_report_intelligence_method_pattern_merge_upgrades_legacy_ids():
@@ -7885,7 +7996,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert summary["validation_candidate_recipe_count"] == 1
     assert summary["tool_only_blocked_recipe_count"] == 0
     assert summary["tool_only_blocked_tool_gap_count"] == 0
-    assert summary["tool_only_blocked_tool_proposal_count"] == 0
+    assert "tool_only_blocked_tool_proposal_count" not in summary
     assert summary["tool_implementation_queue"]["blocked_recipe_count"] == 0
     assert summary["tool_implementation_queue"]["requested_tools"] == []
     assert summary["tool_implementation_queue"]["tool_gap_ids"] == []
@@ -8070,12 +8181,6 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
                 "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
             }
         ],
-        tool_design_proposal_rows=[
-            {
-                "tool_proposal_id": "TDP-TOOL-BLOCKED",
-                "tool_gap_id": "TG-TOOL-BLOCKED",
-            }
-        ],
     )
 
     assert tool_blocked_runs[0]["paper_trading_status"] == "blocked"
@@ -8095,15 +8200,11 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert tool_blocked_summary["tool_only_blocked_tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
-    assert tool_blocked_summary["tool_only_blocked_tool_proposal_ids"] == [
-        "TDP-TOOL-BLOCKED"
-    ]
+    assert "tool_only_blocked_tool_proposal_ids" not in tool_blocked_summary
     assert tool_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
-    assert tool_blocked_summary["tool_implementation_queue"]["tool_proposal_ids"] == [
-        "TDP-TOOL-BLOCKED"
-    ]
+    assert "tool_proposal_ids" not in tool_blocked_summary["tool_implementation_queue"]
     assert tool_blocked_summary["tool_implementation_queue"][
         "blocked_recipe_ids"
     ] == ["RECIPE-TOOL-BLOCKED"]
@@ -8128,14 +8229,6 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
                 "tool_gap_id": "TG-TOOL-BLOCKED",
                 "metric_name": "market_unimplemented_proxy",
                 "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
-                "status": "shadow_implemented",
-            }
-        ],
-        tool_design_proposal_rows=[
-            {
-                "tool_proposal_id": "TDP-TOOL-BLOCKED",
-                "tool_gap_id": "TG-TOOL-BLOCKED",
-                "requested_tools": ["tool.requested.market_unimplemented_proxy"],
                 "status": "shadow_implemented",
             }
         ],
@@ -8460,14 +8553,6 @@ def test_report_intelligence_patch_coverage_uses_public_counts_without_private_i
     _write_jsonl(
         registry_dir / "tool_gaps.jsonl",
         [{"tool_gap_id": "GAP-1", "status": "open"}],
-    )
-    _write_jsonl(
-        registry_dir / "data_acquisition_proposals.jsonl",
-        [{"tool_gap_id": "GAP-1"}],
-    )
-    _write_jsonl(
-        registry_dir / "tool_design_proposals.jsonl",
-        [{"tool_gap_id": "GAP-1"}],
     )
     _write_jsonl(
         registry_dir / "report_forecast_ledger.jsonl",
@@ -10178,7 +10263,7 @@ def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contrac
     check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
     assert check["passed"] is True
     evidence = check["evidence"]
-    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
     assert evidence["ranked_context_agent_count"] >= 1
     assert evidence["no_prior_reason_agent_count"] >= 1
     assert evidence["current_data_guard_violation_count"] == 0
@@ -11487,6 +11572,7 @@ def test_report_intelligence_can_select_historical_sources_by_date(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             limit=1,
             min_publish_date="2025-01-01",
@@ -11600,6 +11686,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12241,6 +12328,7 @@ def test_report_intelligence_industry_pit_availability_records_missing_benchmark
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12332,6 +12420,7 @@ def test_report_intelligence_industry_readiness_records_missing_proxy_series(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12445,6 +12534,7 @@ def test_report_intelligence_industry_candidate_mapping_does_not_label(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12538,6 +12628,7 @@ def test_report_intelligence_industry_mapping_uses_registry_benchmark_symbol(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12649,6 +12740,7 @@ def test_report_intelligence_industry_mapping_effective_from_blocks_early_claim(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12864,6 +12956,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13064,6 +13157,7 @@ def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13149,6 +13243,7 @@ def test_report_intelligence_keeps_long_window_stock_hits(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13239,6 +13334,7 @@ def test_report_intelligence_marks_stock_proxy_future_windows_as_pending(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13327,6 +13423,7 @@ def test_report_intelligence_stock_benchmark_aligns_by_date_across_qlib_dirs(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13395,6 +13492,7 @@ def test_report_intelligence_labels_bearish_stock_claims(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13457,6 +13555,7 @@ def test_report_intelligence_stock_readiness_records_price_gaps(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13554,6 +13653,7 @@ def test_report_intelligence_stock_readiness_records_series_start_gap(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13591,8 +13691,10 @@ def test_report_intelligence_stock_readiness_records_series_start_gap(
     }
 
 
+@pytest.mark.parametrize("target_id", ["000002.SZ", "830001.BJ"])
 def test_report_intelligence_stock_target_conflict_blocks_labeling(
     tmp_path: Path,
+    target_id: str,
 ):
     source_id = _write_source(
         tmp_path / "registry/sources/tushare_research_reports.jsonl",
@@ -13617,7 +13719,7 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
                         "claim_provenance": "source_grounded",
                         "forecast_testability": "testable",
                         "forecast_type": "stock_outlook",
-                        "target": {"target_type": "stock", "target_id": "000002.SZ"},
+                        "target": {"target_type": "stock", "target_id": target_id},
                         "benchmark": {},
                         "direction": "positive",
                         "horizon": {},
@@ -13632,6 +13734,7 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13695,6 +13798,7 @@ def test_report_intelligence_accepts_bj_92_stock_codes(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13755,6 +13859,7 @@ def test_report_intelligence_rejects_legacy_bj_8_stock_codes(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13818,6 +13923,7 @@ def test_report_intelligence_rejects_fund_like_codes_as_stock_targets(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13882,6 +13988,7 @@ def test_report_intelligence_stock_entry_suspension_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13943,6 +14050,7 @@ def test_report_intelligence_stock_entry_limit_locked_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14007,6 +14115,7 @@ def test_report_intelligence_stock_long_suspension_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14072,6 +14181,7 @@ def test_report_intelligence_stock_delisted_before_exit_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14141,6 +14251,7 @@ def test_report_intelligence_stock_exit_limit_locked_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14208,6 +14319,7 @@ def test_report_intelligence_stock_exit_liquidity_unverified_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14585,6 +14697,7 @@ def test_report_intelligence_progress_jsonl_is_redacted(
 
     run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -14611,9 +14724,11 @@ def test_report_intelligence_progress_jsonl_is_redacted(
     assert "http" not in stderr
 
 
+@pytest.mark.parametrize("backend", ["vllm", "ninfer"])
 def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    backend: str,
 ):
     env_path = tmp_path / ".env"
     env_path.write_text(
@@ -14636,12 +14751,14 @@ def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
         assert config.vllm_api_key == "from-env-file"
         assert config.vllm_base_url == "https://example.invalid/v1"
         assert config.vllm_model == "test-model"
+        assert config.llm_backend == backend
         raise RuntimeError("captured config")
 
     monkeypatch.setattr("mosaic.rke.cli.run_report_intelligence_refresh", fake_refresh)
 
     with pytest.raises(RuntimeError, match="captured config"):
-        main(("report-intelligence", "--env-file", str(env_path), "--skip-llm"))
+        main(("report-intelligence", "--env-file", str(env_path),
+              "--llm-backend", backend, "--skip-llm"))
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(
@@ -15075,6 +15192,7 @@ def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=3,
@@ -15173,6 +15291,7 @@ def test_report_intelligence_stratified_source_selection_uses_horizon_and_evalua
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=2,
@@ -15250,6 +15369,7 @@ def test_report_intelligence_stratified_source_selection_covers_outcome_ready_st
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=2,
@@ -15276,33 +15396,6 @@ def test_report_intelligence_stratified_source_selection_covers_outcome_ready_st
         "stock_outcome_120d_calendar_ready": 1,
         "stock_outcome_pending": 1,
     }
-
-
-def test_report_intelligence_extractor_prompt_guides_industry_proxy_fields():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-IND-PROMPT",
-            "title": "有色金属行业深度",
-            "institution": "Broker A",
-            "author": "Analyst A",
-            "publish_date": "2026-01-02",
-            "report_type": "行业研报",
-            "query_key": "有色金属",
-            "industry": "有色金属",
-            "ts_code": "",
-        },
-        "有色金属行业景气度改善，建议超配，后续有望跑赢市场。",
-        "SPAN-IND-PROMPT-001",
-        0,
-        1,
-    )
-
-    assert "target.target_type='sector'" in prompt
-    assert "metadata.industry or metadata.query_key" in prompt
-    assert "target.target_id to the metadata sector string" in prompt
-    assert "expects the sector to outperform" in prompt
-    assert "Use neutral, ambiguous, or unknown" in prompt
-    assert "Never invent a horizon" in prompt
 
 
 def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
@@ -15346,6 +15439,7 @@ def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15498,7 +15592,7 @@ def test_report_intelligence_infers_explicit_horizon_from_claim_text(
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -15583,7 +15677,7 @@ def test_report_intelligence_infers_report_level_rating_horizon_from_markdown(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -15640,7 +15734,7 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -15691,7 +15785,7 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     )
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.outcome_labeling_ready_count == 1
@@ -15717,6 +15811,10 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         ).read_text(encoding="utf-8")
     )
     assert patch_coverage["phase_count"] == 8
+    assert not any(
+        "schema artifact set is incomplete" in blocker
+        for blocker in patch_coverage["blockers"]
+    )
     evolution_gate = json.loads(
         (
             tmp_path
@@ -15797,6 +15895,7 @@ def test_report_intelligence_keeps_long_window_industry_etf_hits(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15912,6 +16011,7 @@ def test_report_intelligence_scores_bearish_industry_reports_with_etf_declines(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15983,8 +16083,9 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
             },
         }
 
-    run_report_intelligence_refresh(
+    full_result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15994,10 +16095,22 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
         llm_extractor=llm,
     )
     labels_path = tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    original_labels = _read_jsonl(labels_path)
+    preserved_paths = [
+        tmp_path / full_result.outputs[key]
+        for key in (
+            "report_metadata",
+            "status",
+            "analytical_footprint_review_summary",
+            "analytical_footprint_error_taxonomy",
+        )
+    ]
+    preserved = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved_paths}
     labels_path.write_text("", encoding="utf-8")
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             qlib_etf_dir=qlib_etf_dir,
             refresh_derived_only=True,
@@ -16009,7 +16122,13 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
     assert result.llm_processed_reports == 1
     assert result.outcome_label_rows == 3
     assert result.industry_etf_proxy_outcome_label_rows == 3
+    assert result.pdf_ready_count == full_result.pdf_ready_count
+    assert result.markdown_ready_count == full_result.markdown_ready_count
+    for path, (content, mtime_ns) in preserved.items():
+        assert path.read_bytes() == content
+        assert path.stat().st_mtime_ns == mtime_ns
     labels = _read_jsonl(labels_path)
+    assert labels == original_labels
     assert {row["horizon_days"] for row in labels} == {20, 60, 120}
 
 
@@ -16464,6 +16583,7 @@ def test_report_intelligence_does_not_fallback_to_abstract_when_markdown_missing
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_download=True,
             skip_convert=True,
@@ -16483,7 +16603,7 @@ def test_report_intelligence_converts_text_source_without_mineru(tmp_path: Path)
     )
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,), skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,), skip_llm=True),
         downloader=_fake_text_downloader,
     )
 
@@ -16547,7 +16667,7 @@ def test_report_intelligence_demotes_unmapped_forecasts_and_filters_agent_ids(
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16632,7 +16752,7 @@ def test_report_intelligence_filters_disclaimers_and_rating_definitions_from_for
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16676,7 +16796,7 @@ def test_report_intelligence_normalizes_unsupported_forecast_direction(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16695,7 +16815,7 @@ def test_report_intelligence_normalizes_unsupported_forecast_direction(
 def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -16775,7 +16895,7 @@ def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path
 def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -16884,7 +17004,7 @@ def test_analytical_footprint_review_pattern_preview_excludes_source_span_text(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -17286,7 +17406,7 @@ def test_prepare_analytical_footprint_review_import_supports_offset_batches(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17323,7 +17443,7 @@ def test_prepare_analytical_footprint_review_import_batches_pending_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17373,7 +17493,7 @@ def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17433,7 +17553,7 @@ def test_prepare_analytical_footprint_review_import_skips_existing_quality_gap_b
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17570,7 +17690,7 @@ def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
 
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17608,7 +17728,7 @@ def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17649,7 +17769,7 @@ def test_write_analytical_footprint_review_assist_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17685,7 +17805,7 @@ def test_analytical_footprint_review_assist_can_follow_review_input_batch(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17726,7 +17846,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17783,7 +17903,7 @@ def test_write_analytical_footprint_review_approval_draft_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17828,7 +17948,7 @@ def test_approve_analytical_footprint_review_draft_writes_valid_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17929,7 +18049,7 @@ def test_analytical_footprint_review_evidence_falls_back_to_cached_markdown(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17955,7 +18075,7 @@ def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17991,7 +18111,7 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18052,7 +18172,7 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18154,7 +18274,7 @@ def test_analytical_footprint_review_evidence_flags_hidden_metric_mapping_gaps(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18214,7 +18334,7 @@ def test_analytical_footprint_review_evidence_backfills_missing_indicator_summar
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18279,7 +18399,7 @@ def test_analytical_footprint_review_evidence_supports_offset_batches(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18320,7 +18440,7 @@ def test_analytical_footprint_review_evidence_can_follow_review_input_batch(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18366,7 +18486,7 @@ def test_analytical_footprint_review_summary_requires_quality_thresholds(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18522,7 +18642,7 @@ def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18589,7 +18709,7 @@ def test_report_intelligence_structures_string_indicator_mentions(tmp_path: Path
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18647,7 +18767,7 @@ def test_report_intelligence_structures_common_report_indicator_aliases(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18730,7 +18850,7 @@ def test_report_intelligence_bounds_stored_claim_text(tmp_path: Path):
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18748,6 +18868,7 @@ def test_report_intelligence_reports_missing_mineru_command(tmp_path: Path):
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_llm=True,
             mineru_command="definitely-not-a-mineru-command",
@@ -18778,7 +18899,7 @@ def test_report_intelligence_redacts_runtime_log_fields(tmp_path: Path):
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, skip_llm=True),
         downloader=_fake_downloader,
         converter=converter,
     )
@@ -18794,9 +18915,11 @@ def test_report_intelligence_redacts_runtime_log_fields(tmp_path: Path):
     assert str(tmp_path) not in status[0]["markdown_stderr_tail"]
 
 
+@pytest.mark.parametrize("scope", ["basic", "full"])
 def test_report_intelligence_cli_can_write_status_without_network(
     tmp_path: Path,
     capsys,
+    scope,
 ):
     _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
 
@@ -18810,6 +18933,7 @@ def test_report_intelligence_cli_can_write_status_without_network(
             "--skip-download",
             "--skip-convert",
             "--skip-llm",
+            *(("--derived-scope", "full") if scope == "full" else ()),
         )
     )
     output = json.loads(capsys.readouterr().out)
@@ -18817,7 +18941,8 @@ def test_report_intelligence_cli_can_write_status_without_network(
     assert code == 0
     assert output["selected_reports"] == 1
     assert output["blocker_count"] == 0
-    assert (tmp_path / "registry/report_intelligence/extraction_report.json").exists()
+    assert output["refresh_scope"] == scope
+    assert (tmp_path / "registry/report_intelligence/extraction_report.json").exists() == (scope == "full")
 
 
 def test_report_intelligence_tool_coverage_classifier():
@@ -18878,7 +19003,7 @@ def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
 
 
 def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
-    proposals = build_data_acquisition_proposals(
+    gaps = backfill_stock_market_cap_tool_gap(
         [],
         stock_context_snapshot_rows=[
             {
@@ -18892,6 +19017,7 @@ def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
         ],
     )
 
+    proposals = build_data_acquisition_proposals(gaps)
     assert len(proposals) == 1
     proposal = proposals[0]
     assert proposal["tool_gap_id"] == "stock_context_market_cap_metadata_missing"
@@ -18906,7 +19032,7 @@ def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
 
 
 def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals():
-    proposals = build_data_acquisition_proposals(
+    gaps = backfill_stock_market_cap_tool_gap(
         [],
         stock_context_snapshot_rows=[
             {
@@ -18923,8 +19049,7 @@ def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals()
             "stock_price_proxy_readiness": {"data_gap_counts": {}},
             "industry_etf_proxy_readiness": {"data_gap_counts": {}},
         },
-        tool_gap_rows=[],
-        data_acquisition_proposal_rows=proposals,
+        tool_gap_rows=gaps,
         recipe_paper_trading_runs=[],
         confidence_impact_observation_rows=[],
         confidence_impact_monitor={"drift_status_counts": {}},
@@ -18948,11 +19073,11 @@ def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals()
     evidence = candidate["evidence_refs"][0]
     assert (
         evidence["artifact_path"]
-        == "registry/report_intelligence/data_acquisition_proposals.jsonl"
+        == "registry/report_intelligence/tool_gaps.jsonl"
     )
-    assert evidence["field"] == "decision_status"
-    assert evidence["proposal_count"] == 1
-    assert evidence["business_priority_counts"] == {"medium": 1}
+    assert evidence["field"] == "data_decision_status"
+    assert evidence["tool_gap_count"] == 1
+    assert evidence["priority_bucket_counts"] == {"medium": 1}
     assert evidence["pit_feasibility_status_counts"] == {
         "requires_pit_backfill_review": 1
     }
@@ -19485,3 +19610,486 @@ def test_merge_report_intelligence_batches_cli_replace(capsys, tmp_path: Path):
     assert _read_jsonl(tmp_path / "registry/report_intelligence/tool_gaps.jsonl") == [
         {"tool_gap_id": "TG-1"}
     ]
+
+
+
+def test_tool_gap_review_migration_preserves_review_and_archives_only_on_apply(
+    tmp_path, capsys
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG-MIGRATE",
+        "metric_name": "missing_private_metric",
+        "metric_candidate_id": "MC-MIGRATE",
+        "gap_type": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+        "target_agents": ["macro"],
+        "method_pattern_ids": [],
+        "research_origin": {},
+        "priority_reasons": [],
+        "blocking_issues": [],
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    data.update(decision_status="rejected", reviewer_note="PRIVATE_REVIEW_SENTINEL")
+    design = build_tool_design_proposals([gap])[0]
+    design.update(
+        status="shadow_implemented", requested_tools=["tool.requested.reviewed"]
+    )
+    rows = {
+        "tool_gaps.jsonl": [gap],
+        "data_acquisition_proposals.jsonl": [data],
+        "tool_design_proposals.jsonl": [design],
+    }
+    for name, values in rows.items():
+        ri._write_jsonl(registry / name, values)
+    before = {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--migrate-tool-gap-reviews",
+                "--dry-run",
+            )
+        )
+        == 0
+    )
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["accepted"] is True and preview["applied"] is False
+    assert "PRIVATE_REVIEW_SENTINEL" not in json.dumps(preview)
+    assert before == {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--migrate-tool-gap-reviews",
+            )
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["accepted"] is True and result["applied"] is True
+    migrated = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert migrated["data_decision_status"] == "rejected"
+    assert migrated["shadow_implementation_status"] == "shadow_implemented"
+    assert migrated["requested_tools"] == ["tool.requested.reviewed"]
+    assert migrated["data_review"] == {"reviewer_note": "PRIVATE_REVIEW_SENTINEL"}
+    assert "input_parameters" not in migrated and "validation_plan" not in migrated
+    assert "data_proposal_id" not in migrated
+    assert "tool.requested.reviewed" in ri._shadow_implemented_requested_tools(
+        tool_gap_rows=[migrated]
+    )
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--show-tool-gap-review",
+                "data",
+            )
+        )
+        == 0
+    )
+    view = json.loads(capsys.readouterr().out)
+    assert view["views"][0]["reviewer_note"] == "PRIVATE_REVIEW_SENTINEL"
+    assert view["views"][0]["decision_status"] == "rejected"
+    for name in rows:
+        if name != "tool_gaps.jsonl":
+            assert not (registry / name).exists()
+            assert (registry / "retired_proposals" / name).read_bytes() == before[name][
+                0
+            ]
+    after = {
+        str(p.relative_to(registry)): (p.read_bytes(), p.stat().st_mtime_ns)
+        for p in registry.rglob("*")
+        if p.is_file()
+    }
+    repeated = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert repeated["accepted"] is True and repeated["applied"] is False
+    assert after == {
+        str(p.relative_to(registry)): (p.read_bytes(), p.stat().st_mtime_ns)
+        for p in registry.rglob("*")
+        if p.is_file()
+    }
+
+
+@pytest.mark.parametrize("problem", ["conflict", "orphan", "invalid_json", "duplicate", "invalid_review"])
+def test_tool_gap_review_migration_rejects_without_writes(tmp_path, problem):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG",
+        "metric_name": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    design = build_tool_design_proposals([gap])[0]
+    if problem == "conflict":
+        data["license_status"] = "restricted"
+        design["license_status"] = "approved"
+    elif problem == "orphan":
+        data["tool_gap_id"] = "UNKNOWN"
+    elif problem == "invalid_review":
+        data["license_status"] = "cleared"
+    ri._write_jsonl(registry / "tool_gaps.jsonl", [gap])
+    ri._write_jsonl(
+        registry / "data_acquisition_proposals.jsonl",
+        [data, data] if problem == "duplicate" else [data],
+    )
+    ri._write_jsonl(registry / "tool_design_proposals.jsonl", [design])
+    if problem == "invalid_json":
+        (registry / "data_acquisition_proposals.jsonl").write_text(
+            "PRIVATE_INVALID_JSON"
+        )
+    before = {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] is False and result["applied"] is False
+    assert "PRIVATE_INVALID_JSON" not in json.dumps(result)
+    assert before == {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+
+
+def test_full_refresh_rejects_unmigrated_tool_reviews_before_extraction(
+    tmp_path, monkeypatch
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    ri._write_jsonl(
+        registry / "data_acquisition_proposals.jsonl", [{"reviewer_note": "PRIVATE"}]
+    )
+    path = registry / "data_acquisition_proposals.jsonl"
+    before = path.read_bytes(), path.stat().st_mtime_ns
+    monkeypatch.setattr(
+        ri,
+        "_selected_source_rows",
+        lambda *a, **k: pytest.fail("must reject before extraction"),
+    )
+    for derived in (False, True):
+        result = run_report_intelligence_refresh(
+            ReportIntelligenceConfig(
+                root=tmp_path, derived_scope="full", refresh_derived_only=derived
+            )
+        )
+        assert result.blocker_count == 1 and result.outputs == {}
+        assert "migrate-tool-gap-reviews" in result.blockers[0]
+        assert before == (path.read_bytes(), path.stat().st_mtime_ns)
+
+
+def test_tool_gap_review_migration_preserves_orphan_market_cap_evidence(tmp_path):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    ri._write_jsonl(registry / "tool_gaps.jsonl", [])
+    proposal = {
+        "data_proposal_id": "LEGACY-DAP",
+        "tool_gap_id": "stock_context_market_cap_metadata_missing",
+        "owner": "data_engineering",
+        "business_priority": "medium",
+        "source_tool_gap_priority": "medium",
+        "required_fields": ["custom_vendor_market_cap", "source_timestamp"],
+        "evidence_summary": {"affected_stock_context_snapshot_count": 7},
+        "decision_status": "rejected",
+    }
+    ri._write_jsonl(registry / "data_acquisition_proposals.jsonl", [proposal])
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] is True
+    gap = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert gap["evidence_summary"] == {"affected_stock_context_snapshot_count": 7}
+    view = build_data_acquisition_proposals([gap])[0]
+    assert view["required_fields"] == proposal["required_fields"]
+    assert view["decision_status"] == "rejected"
+
+
+def test_tool_gap_review_migration_resumes_after_interrupted_archive_move(
+    tmp_path, monkeypatch
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG",
+        "metric_name": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    data["decision_status"] = "rejected"
+    design = build_tool_design_proposals([gap])[0]
+    design["status"] = "shadow_implemented"
+    for name, row in (
+        ("tool_gaps.jsonl", gap),
+        ("data_acquisition_proposals.jsonl", data),
+        ("tool_design_proposals.jsonl", design),
+    ):
+        ri._write_jsonl(registry / name, [row])
+    original_replace = Path.replace
+
+    def interrupt_tool_archive(path, target):
+        if path.name == "tool_design_proposals.jsonl":
+            raise OSError("interrupted archive move")
+        return original_replace(path, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "replace", interrupt_tool_archive)
+        with pytest.raises(OSError, match="interrupted archive"):
+            ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert (registry / "retired_proposals/data_acquisition_proposals.jsonl").exists()
+    assert (registry / "tool_design_proposals.jsonl").exists()
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] and result["applied"]
+    current = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert current["data_decision_status"] == "rejected"
+    assert current["shadow_implementation_status"] == "shadow_implemented"
+    assert not (registry / "tool_design_proposals.jsonl").exists()
+
+
+
+@pytest.mark.parametrize(("field", "valid", "invalid"), [
+    ("license_status", "approved", "cleared"),
+    ("pit_feasibility_status", "requires_pit_backfill_review", "pit_feasible"),
+    ("shadow_implementation_status", "shadow_implemented", "production"),
+    ("engineering_effort", "medium", []),
+])
+def test_tool_gap_feasibility_preserves_review_value_constraints(field, valid, invalid):
+    from mosaic.rke import report_intelligence as ri
+
+    gap = {"tool_gap_id": "TG", "metric_candidate_id": "", "owner": "data_engineering",
+           "priority_bucket": "medium", "priority_reasons": ["missing_metric"],
+           "blocking_issues": ["requires_engineering_review"], "status": "proposal_pending",
+           field: valid}
+    inputs = dict(run_id="RIR-REVIEW", feature_flags={"rollout_mode": "shadow_tooling", "flags": {}},
+                  metric_rows=[], tool_coverage_match_rows=[], tool_gap_rows=[gap],
+                  analysis_recipe_rows=[], runtime_tool_gap_observation_rows=[])
+    audit = ri.build_report_intelligence_tool_feasibility_audit(**inputs)
+    assert audit["accepted"], audit["blockers"]
+    gap[field] = invalid
+    audit = ri.build_report_intelligence_tool_feasibility_audit(**inputs)
+    assert not audit["accepted"]
+    check = next(row for row in audit["checks"] if row["check_id"] == "RI-TOOL-02")
+    assert any(field in failure for failure in check["failures"])
+@pytest.mark.parametrize("regime_as_list", [False, True])
+def test_research_case_preserves_reasoning_and_does_not_promote_fragments(regime_as_list):
+    from mosaic.rke.report_intelligence import _normalize_footprints, _normalize_method_patterns
+
+    case = {
+        "question": "Why can margins recover before demand?",
+        "historical_regime": "Inventory liquidation with stable financing costs",
+        "reasoning_chain": ["Inventory falls", "Discounting slows", "Margins recover"],
+        "evidence": ["Inventory days fell before sales recovered"],
+        "assumptions": ["Capacity does not expand"],
+        "invalidation_conditions": ["New capacity restarts price competition"],
+        "conclusion": "Monitor inventory and capacity together",
+    }
+    raw_case = dict(case)
+    if regime_as_list:
+        raw_case["historical_regime"] = [case["historical_regime"]]
+    footprints = _normalize_footprints(
+        {"analytical_footprints": [{"topic": "Inventory and margins", "research_case": raw_case,
+          "analysis_patterns": ["inventory", "valuation"]}]},
+        {"source_id": "SRC-SYNTHETIC"}, run_id="TEST", model="synthetic",
+        report_id="RPT-SYNTHETIC", chunk_span_id="SPAN-SYNTHETIC",
+    )
+    assert footprints[0]["research_case"] == case
+    methods = _normalize_method_patterns(footprints, run_id="TEST", model="synthetic")
+    assert len(methods) == 1
+    assert methods[0]["steps"] == case["reasoning_chain"]
+    assert methods[0]["historical_regime"] == case["historical_regime"]
+    assert _normalize_method_patterns([{"analysis_patterns": ["inventory"]}],
+                                      run_id="TEST", model="synthetic") == []
+def test_case_indicator_meaning_survives_extraction_and_refresh():
+    from mosaic.rke.report_intelligence import _normalize_footprints
+
+    mentions = [
+        {"indicator_text": "2025年归母净利润2亿元（实际）",
+         "canonical_metric_candidate": "reported_net_profit", "source_grounded": True},
+        {"indicator_text": "当前股价对应PE 20x（2027E）",
+         "canonical_metric_candidate": "valuation_multiple", "source_grounded": True},
+        {"indicator_text": "单季度毛利率23%，环比+1pct",
+         "canonical_metric_candidate": "gross_margin", "source_grounded": True},
+        {"indicator_text": "新增产能带来的净利润影响",
+         "canonical_metric_candidate": "unknown", "source_grounded": False},
+    ]
+    case = {"question": "产能投放如何影响利润？",
+            "reasoning_chain": ["新增产能释放", "订单交付增加"]}
+    payload = {"analytical_footprints": [None, {}, {"topic": "产能与利润", "research_case": case,
+                                                   "indicator_mentions": mentions}]}
+    footprints = _normalize_footprints(payload, {"source_id": "S"}, run_id="T",
+        model="synthetic", report_id="R", chunk_span_id="SPAN")
+    assert len(footprints) == 1
+    refreshed = _refresh_analytical_footprint_indicator_governance(footprints)
+    for rows in (footprints, refreshed):
+        actual = {m["indicator_text"]: m for m in rows[0]["indicator_mentions"]}
+        for expected in mentions:
+            mention = actual[expected["indicator_text"]]
+            assert mention["canonical_metric_candidate"] == expected["canonical_metric_candidate"]
+            assert mention["source_grounded"] is expected["source_grounded"]
+            assert mention["data_source_mentioned"] == "unknown"
+            assert mention["frequency"] == "unknown"
+    assert refreshed == footprints
+
+
+def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence(tmp_path, monkeypatch):
+    from mosaic.rke import report_intelligence as ri
+
+    markdown = tmp_path / "company.md"
+    markdown.write_text("公司利润总额增长，营业收入增长。", encoding="utf-8")
+    case = {"question": "Why do profits grow?", "reasoning_chain": ["Sales rise", "Profits rise"]}
+    footprint = {
+        "footprint_id": "AFP-COMPANY", "source_id": "SRC-COMPANY", "topic": "公司盈利与利润",
+        "source_span_ids": ["SRC-COMPANY:original_markdown:chunk-001"],
+        "research_case": case,
+        "indicator_mentions": [
+            {"indicator_text": "营业收入", "canonical_metric_candidate": "revenue_growth",
+             "source_grounded": True},
+            {"indicator_text": "工业企业利润/PPI", "source_grounded": True,
+             "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+             "inference_source": "source_chunk_indicator_seed_rule"},
+        ],
+    }
+    metadata = [{"source_id": "SRC-COMPANY", "markdown": {"path": str(markdown)}}]
+    refreshed = _refresh_analytical_footprint_indicator_governance(
+        [footprint, dict(footprint, indicator_mentions=[])],
+        metadata_rows=metadata, root_path=tmp_path,
+    )
+    assert [row["indicator_text"] for row in refreshed[0]["indicator_mentions"]] == ["营业收入"]
+    assert refreshed[1]["indicator_mentions"] == []
+    assert refreshed[0]["research_case"] == case
+    assert len(footprint["indicator_mentions"]) == 2
+
+    methods = ri._normalize_method_patterns([footprint], run_id="old", model="synthetic")
+    methods[0]["validation_status"] = "reviewed"
+    methods[0]["reviewer_note"] = "Preserve review context"
+    method_id = methods[0]["method_pattern_id"]
+    methods.append({"method_pattern_id": "OLD", "name": "Legacy context",
+                    "research_case_based": False, "required_current_data": ["legacy_metric"]})
+    registry = tmp_path / "registry/report_intelligence"
+    for name, rows in (("report_metadata", metadata), ("forecast_claims", [{"source_id": "SRC-COMPANY"}]),
+                       ("analytical_footprints", [footprint]), ("method_patterns", methods)):
+        _write_jsonl(registry / f"{name}.jsonl", rows)
+    monkeypatch.setattr(ri, "_refresh_report_intelligence_derived_artifacts", lambda **kwargs: kwargs)
+    result = run_report_intelligence_derived_refresh(
+        ReportIntelligenceConfig(root=tmp_path, derived_scope="full", refresh_derived_only=True)
+    )
+    current = next(row for row in result["method_rows"] if row.get("research_case_based") is True)
+    assert current["method_pattern_id"] == method_id
+    assert current["required_current_data"] == ["revenue_growth"]
+    assert current["validation_status"] == "reviewed"
+    assert current["reviewer_note"] == "Preserve review context"
+    legacy = next(row for row in result["method_rows"] if row.get("research_case_based") is False)
+    assert legacy["required_current_data"] == ["legacy_metric"]
+
+
+def test_research_case_migration_is_conservative_archived_and_idempotent(tmp_path):
+    from mosaic.rke.report_intelligence import migrate_research_cases, build_analysis_recipes
+
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    rows = [
+        {"footprint_id": "AFP-1", "topic": "Inventory and margins", "analysis_patterns": [{
+            "steps": ["Inventory falls", "Discounting slows", "Margins recover"],
+            "failure_modes": ["Capacity expansion restarts competition"],
+        }]},
+        {"footprint_id": "AFP-2", "topic": "Valuation", "analysis_patterns": ["PE", "ROE"]},
+        {"footprint_id": "AFP-3", "topic": "Several unrelated models", "analysis_patterns": [
+            {"steps": ["A", "B"]}, {"steps": ["C", "D"]},
+        ]},
+    ]
+    original = "\n".join(json.dumps(row) for row in rows) + "\n"
+    (directory / "analytical_footprints.jsonl").write_text(original)
+    (directory / "method_patterns.jsonl").write_text(json.dumps({"method_pattern_id": "OLD", "name": "PE"}) + "\n")
+    preview = migrate_research_cases(root=tmp_path)
+    assert preview["recovered_case_count"] == 1
+    assert preview["legacy_context_only_count"] == 2
+    assert (directory / "analytical_footprints.jsonl").read_text() == original
+    applied = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert applied["accepted"] and applied["applied"]
+    assert (Path(applied["archive_path"]) / "analytical_footprints.jsonl").read_text() == original
+    recovered = json.loads((directory / "analytical_footprints.jsonl").read_text().splitlines()[0])
+    assert recovered["research_case"]["historical_regime"] == ""
+    assert recovered["research_case"]["conclusion"] == ""
+    methods = [json.loads(line) for line in (directory / "method_patterns.jsonl").read_text().splitlines()]
+    assert len(methods) == 2
+    assert methods[0]["research_case_based"] is False
+    assert build_analysis_recipes(methods) == []
+    again = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert again["recovered_case_count"] == 0
+    assert "archive_path" not in again
+
+
+def test_case_methods_with_different_conditions_do_not_merge():
+    from mosaic.rke.report_intelligence import _normalize_method_patterns, _append_unique_method_patterns
+
+    case = {"question": "Inventory recovery", "historical_regime": "tight capacity",
+            "reasoning_chain": ["Inventory declines", "Margins recover"],
+            "assumptions": [], "invalidation_conditions": [], "evidence": [], "conclusion": ""}
+    rows = [{"footprint_id": "A", "research_case": case},
+            {"footprint_id": "B", "research_case": dict(case, historical_regime="capacity expansion")}]
+    methods = _normalize_method_patterns(rows, run_id="test", model="synthetic")
+    assert len(methods) == 2
+    merged = []
+    _append_unique_method_patterns(merged, methods)
+    assert len(merged) == 2
+    assert len({method["method_pattern_id"] for method in merged}) == 2
+
+
+def test_research_case_identity_schema_and_review_cover_the_argument():
+    from copy import deepcopy
+    from jsonschema import Draft202012Validator
+    from mosaic.rke.report_intelligence import _footprint_review_template_row, _normalize_footprints
+
+    case = {"question": "Liquidity and discount rates", "historical_regime": "",
+            "reasoning_chain": ["Funding costs decline", "Discount rates fall"],
+            "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": ""}
+    payload = {"analytical_footprints": [{"topic": "pboc liquidity", "research_case": case},
+               {"topic": "pboc liquidity", "research_case": dict(case, historical_regime="Credit tightening")}]}
+    rows = _normalize_footprints(payload, {"source_id": "S"}, run_id="T", model="synthetic",
+                                 report_id="R", chunk_span_id="SPAN")
+    assert rows[0]["footprint_id"] != rows[1]["footprint_id"]
+    assert rows[0]["indicator_mentions"] == []
+    review = _footprint_review_template_row(rows[0])
+    assert review["research_case_review_preview"] == case
+    changed = deepcopy(rows[0])
+    changed["research_case"]["assumptions"] = ["Credit spreads stay stable"]
+    assert _footprint_review_template_row(changed)["target_row_hash"] != review["target_row_hash"]
+    schema = json.loads((Path(__file__).parents[1] / "schemas/report_intelligence_analytical_footprint.schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    validator.validate(rows[0])
+    changed["research_case"]["reasoning_chain"] = "name only"
+    assert list(validator.iter_errors(changed))
+    changed["research_case"] = dict(case, claim_text="raw source prose")
+    assert list(validator.iter_errors(changed))
+
+
+def test_research_case_migration_rejects_malformed_existing_case_without_writes(tmp_path):
+    from mosaic.rke.report_intelligence import migrate_research_cases
+
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    path = directory / "analytical_footprints.jsonl"
+    original = '{"footprint_id":"AFP", "research_case":null}\n'
+    path.write_text(original)
+    result = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert not result["accepted"] and not result["applied"]
+    assert "invalid_existing_research_case" in result["blockers"]
+    assert path.read_text() == original
+    assert not (tmp_path / ".mosaic/rke/research_case_migration").exists()

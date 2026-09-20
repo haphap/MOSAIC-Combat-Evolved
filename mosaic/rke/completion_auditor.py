@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import yaml
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,7 +15,13 @@ from .completion_acceptance import final_acceptance_metadata
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .governance import ProductionPatch, default_evolution_targets, validate_patch
 from .monitoring import ProductionMonitorPolicy
-from .p0 import LearnableParameter
+from .p0 import (
+    CONFIDENCE_COMPONENTS,
+    RESEARCH_ONLY_CONFIDENCE_CAP,
+    ConfidenceComponents,
+    LearnableParameter,
+    compute_confidence_v1,
+)
 from .phase_minus1 import evaluate_gold_set_reviews
 from .review_integrity import (
     GOLD_REVIEW_FIELDS,
@@ -130,14 +138,6 @@ def _split_mapping_rows(
     return valid, tuple(invalid)
 
 
-_CONFIDENCE_COMPONENTS = (
-    "data_confidence",
-    "research_weight_confidence",
-    "empirical_validation_confidence",
-    "method_tool_confidence",
-    "regime_match_confidence",
-)
-
 
 def _nearly_equal(left: float, right: float, *, tolerance: float = 1e-9) -> bool:
     return abs(left - right) <= tolerance
@@ -150,28 +150,30 @@ def _confidence_policy_gate(
 ) -> tuple[bool, str, str]:
     failures: list[str] = []
     schema_path = root / "schemas/confidence_policy.schema.yaml"
-    doc_path = root / "docs/confidence_policy.md"
     if not schema_path.exists():
         failures.append("confidence policy schema missing")
     else:
-        schema_text = schema_path.read_text(encoding="utf-8")
-        for marker in (
-            "safe_default_function:",
-            "research_only_without_current_data:",
-            "final_confidence_max: 0.50",
-        ):
-            if marker not in schema_text:
-                failures.append(f"confidence policy schema missing {marker}")
-    if not doc_path.exists():
-        failures.append("confidence policy doc missing")
-    else:
-        doc_text = doc_path.read_text(encoding="utf-8")
-        for marker in (
-            "final_confidence = min(pre_cap_confidence, confidence_cap)",
-            "Research-Only Rule",
-        ):
-            if marker not in doc_text:
-                failures.append(f"confidence policy doc missing {marker}")
+        try:
+            policy = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            policy = None
+        if not isinstance(policy, Mapping):
+            failures.append("confidence policy schema must contain a YAML object")
+        else:
+            if policy.get("components") != list(CONFIDENCE_COMPONENTS):
+                failures.append("confidence policy schema components do not match runtime policy")
+            if policy.get("safe_default_function") != "min(components), then min(confidence_cap)":
+                failures.append("confidence policy schema function does not match runtime policy")
+            research_only = policy.get("research_only_without_current_data")
+            if not isinstance(research_only, Mapping):
+                failures.append("confidence policy schema research-only limits missing")
+            else:
+                for field in ("data_confidence_max", "final_confidence_max"):
+                    if research_only.get(field) != RESEARCH_ONLY_CONFIDENCE_CAP:
+                        failures.append(f"confidence policy schema {field} does not match runtime policy")
+                allowed = research_only.get("actionability_allowed")
+                if not isinstance(allowed, list) or sorted(str(item) for item in allowed) != ["monitor_only", "no_trade"]:
+                    failures.append("confidence policy schema research-only actions do not match runtime policy")
 
     if runtime_output_error:
         failures.append(runtime_output_error)
@@ -201,7 +203,7 @@ def _confidence_policy_gate(
         failures.append(
             "confidence_policy_trace.safe_default_function must be min_components_then_cap"
         )
-    if tuple(trace.get("component_order") or ()) != _CONFIDENCE_COMPONENTS:
+    if tuple(trace.get("component_order") or ()) != CONFIDENCE_COMPONENTS:
         failures.append(
             "confidence_policy_trace.component_order must match confidence policy components"
         )
@@ -211,26 +213,16 @@ def _confidence_policy_gate(
         )
 
     parsed_components: dict[str, float] = {}
-    for component in _CONFIDENCE_COMPONENTS:
+    for component in CONFIDENCE_COMPONENTS:
         value, error = _float_field(components, component, "confidence_components")
         if error:
             failures.append(error)
         elif value is not None:
             parsed_components[component] = value
-    if len(parsed_components) != len(_CONFIDENCE_COMPONENTS):
+    if len(parsed_components) != len(CONFIDENCE_COMPONENTS):
         return False, "confidence policy runtime trace incomplete", "; ".join(failures)
 
     current_data_confirmed = bool(trace.get("current_data_confirmed"))
-    data_confidence = parsed_components["data_confidence"]
-    if not current_data_confirmed:
-        data_confidence = min(data_confidence, 0.50)
-    expected_pre_cap = min(
-        data_confidence,
-        parsed_components["research_weight_confidence"],
-        parsed_components["empirical_validation_confidence"],
-        parsed_components["method_tool_confidence"],
-        parsed_components["regime_match_confidence"],
-    )
     pre_cap, pre_cap_error = _float_field(
         trace, "pre_cap_confidence", "confidence_policy_trace"
     )
@@ -239,17 +231,29 @@ def _confidence_policy_gate(
         trace, "final_confidence", "confidence_policy_trace"
     )
     failures.extend(error for error in (pre_cap_error, cap_error, final_error) if error)
+    if cap is None:
+        return False, "confidence policy runtime trace incomplete", "; ".join(failures)
+    try:
+        expected = compute_confidence_v1(
+            ConfidenceComponents(**parsed_components),
+            confidence_cap=cap,
+            current_data_confirmed=current_data_confirmed,
+        )
+    except ValueError as exc:
+        failures.append(str(exc))
+        return False, "confidence policy runtime trace invalid", "; ".join(failures)
+    expected_pre_cap = expected.pre_cap_confidence
     if pre_cap is not None and not _nearly_equal(pre_cap, expected_pre_cap):
         failures.append(
             "confidence_policy_trace.pre_cap_confidence must equal min confidence component"
         )
     if cap is not None and final is not None:
-        expected_final = min(expected_pre_cap, cap)
+        expected_final = expected.final_confidence
         if not _nearly_equal(final, expected_final):
             failures.append(
                 "confidence_policy_trace.final_confidence must equal min(pre_cap, confidence_cap)"
             )
-        if not current_data_confirmed and final > 0.50:
+        if not current_data_confirmed and final > RESEARCH_ONLY_CONFIDENCE_CAP:
             failures.append("research-only confidence must be capped at 0.50")
 
     recommendations, recommendations_error = _sequence_field(

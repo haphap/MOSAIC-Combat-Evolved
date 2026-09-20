@@ -285,6 +285,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 spec.agentId,
                 preparedCapability?.prepared_initial_tool_ids,
               ),
+              reserveRkeQuery: true,
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
               onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
@@ -614,9 +615,12 @@ export function buildLayerThreeUserContext(
 export function buildLayerThreeInitialToolCalls(
   _state: DailyCycleStateType,
   _agentId: string,
-  _preparedInitialToolIds?: ReadonlyArray<string>,
+  preparedInitialToolIds: ReadonlyArray<string> = [],
 ): AgentInitialToolCall[] {
-  return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
+  return [
+    { name: "get_superinvestor_candidate_snapshot", args: {} },
+    ...preparedInitialToolIds.map((name) => ({ name, args: {} })),
+  ];
 }
 
 export interface SuperinvestorOpportunityAuthority {

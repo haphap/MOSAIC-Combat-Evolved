@@ -28,6 +28,8 @@ from .report_intelligence import _gold_review_quality_gap_targets_from_summary
 from .review_gates import summarize_gold_set_review
 from .temp_paths import rke_tmp_root
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 GOLD_REVIEW_TEMPLATE_PATH = "registry/gold_sets/tushare_research_reports.review_template.jsonl"
 GOLD_REVIEW_PACKET_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
@@ -159,25 +161,6 @@ class GoldReviewBackfillResult:
     blockers: Sequence[str]
     backed_up_existing_output: bool = False
     backup_path: str = ""
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -2875,6 +2858,20 @@ def build_manual_review_batch_status(
     return status, gold_batch, license_batch
 
 
+def build_full_gold_review_import_template(root: str | Path = ".") -> tuple[Mapping[str, Any], ...]:
+    """Build the blank full-review input without generating workbook artifacts."""
+    root_path = Path(root)
+    _, gold_rows, _, _, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    return tuple(
+        _gold_template_row(row)
+        for row in _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
+    )
+
+
 def write_manual_review_batches(
     root: str | Path = ".",
     *,
@@ -2887,15 +2884,7 @@ def write_manual_review_batches(
         gold_batch_size=gold_batch_size,
         license_batch_size=license_batch_size,
     )
-    _, gold_rows, _, _, _ = _load_review_rows(
-        root_path,
-        GOLD_REVIEW_TEMPLATE_PATH,
-        label="gold-set review",
-    )
-    gold_full = tuple(
-        _gold_template_row(row)
-        for row in _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
-    )
+    gold_full = build_full_gold_review_import_template(root_path)
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_review_input_path = (

@@ -21,6 +21,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from mosaic.rke.agent_research_context import MACRO_AGENTS
 from mosaic.scorecard.capability_preservation import (
     load_capability_contract_bundle,
     validate_capability_contract_bundle,
@@ -29,6 +30,7 @@ from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.l3_l4_preservation import (
     L3_TOOL_ROSTER,
     L4_STAGE_ROSTER,
+    _binding_body,
     QUERY_BUNDLE_CONTRACT_VERSION as BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION,
     validate_l3_l4_preservation_overlay,
 )
@@ -640,6 +642,73 @@ class FrozenAdaptiveQueryStore:
             initial_requests: list[tuple[str, dict[str, Any], str]] = []
             contract_version = SECTOR_QUERY_BUNDLE_CONTRACT_VERSION
             max_rounds = 3
+        elif overlay_version == "agent_capability_binding_manifest_v1":
+            if (
+                agent_id not in MACRO_AGENTS
+                or stage != agent_id
+                or preservation_stage not in {None, stage}
+            ):
+                raise ValueError("macro research Agent/stage is invalid")
+            bundle = load_capability_contract_bundle(_REPO_ROOT)
+            current = json.loads(
+                (
+                    _REPO_ROOT
+                    / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+                ).read_text()
+            )
+            validate_capability_contract_bundle(bundle, current_tool_manifest=current)
+            if preservation_overlay != bundle["binding_manifest"]:
+                raise ValueError("macro research active binding authority mismatch")
+            scope = dict(authorized_scope)
+            if (
+                set(scope) != {"as_of", "source_snapshot_hash"}
+                or scope["as_of"] != as_of
+                or not _is_sha256(scope["source_snapshot_hash"])
+            ):
+                raise ValueError("macro research snapshot scope is invalid")
+            routes = json.loads(
+                (
+                    _REPO_ROOT
+                    / "registry/data_sources/agent_data_route_manifest_v1.json"
+                ).read_text()
+            )
+            full = _binding_body(
+                agent_id=agent_id,
+                stage=stage,
+                tool_id="get_rke_research_context",
+                routes_by_id={row["route_id"]: row for row in routes["routes"]},
+            )
+            rows = [
+                row
+                for row in preservation_overlay["bindings"]
+                if row["agent_id"] == agent_id
+                and row["stage"] == stage
+                and row["tool_id"] == "get_rke_research_context"
+            ]
+            if len(rows) != 1 or any(
+                value != full[key]
+                for key, value in rows[0].items()
+                if key not in {"binding_id", "activation_state"}
+            ):
+                raise ValueError("macro research binding contract drift")
+            bindings = {"get_rke_research_context": {**full, **rows[0]}}
+            initial_requests = self._validate_bound_requests(
+                initial_query_requests,
+                bindings=bindings,
+                scope=scope,
+                as_of=as_of_date,
+                agent_id=agent_id,
+                stage=stage,
+                allow_empty=False,
+                preserve_order=True,
+            )
+            if len(initial_requests) != 1 or query_requests:
+                raise ValueError(
+                    "macro research permits one initial query and no follow-ups"
+                )
+            follow_up_requests = []
+            contract_version = BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION
+            max_rounds = 0
         elif overlay_version == "l3_l4_preservation_overlay_v1":
             validate_l3_l4_preservation_overlay(preservation_overlay, root=_REPO_ROOT)
             overlay_stage = preservation_stage or stage
@@ -670,12 +739,6 @@ class FrozenAdaptiveQueryStore:
                 for row in preservation_overlay["bindings"]
                 if row["agent_id"] == agent_id and row["stage"] == overlay_stage
             }
-            if (
-                agent_id in L3_TOOL_ROSTER
-                and not scope["accepted_candidate_tickers"]
-                and (initial_query_requests or query_requests)
-            ):
-                raise ValueError("L3 empty candidate scope does not permit private queries")
             initial_requests = self._validate_bound_requests(
                 initial_query_requests,
                 bindings=bindings,
@@ -708,8 +771,10 @@ class FrozenAdaptiveQueryStore:
                 agent_id in L3_TOOL_ROSTER
                 and not scope["accepted_candidate_tickers"]
             )
-            if empty_l3_scope and (initial_requests or follow_up_requests):
-                raise ValueError("L3 empty candidate scope does not permit private queries")
+            if empty_l3_scope and (initial_requests or any(
+                tool_id != "get_rke_research_context" for tool_id, _, _ in follow_up_requests
+            )):
+                raise ValueError("L3 empty candidate scope only permits RKE research queries")
             if (
                 not empty_l3_scope
                 and not initial_requests
@@ -725,7 +790,7 @@ class FrozenAdaptiveQueryStore:
             contract_version = BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION
             max_rounds = (
                 3
-                if agent_id in L3_TOOL_ROSTER and not empty_l3_scope
+                if agent_id in L3_TOOL_ROSTER and (not empty_l3_scope or follow_up_requests)
                 else 0
             )
             if max_rounds == 0 and follow_up_requests:
@@ -1269,10 +1334,12 @@ class FrozenAdaptiveQueryStore:
         if tool_id == "get_rke_research_context":
             if request.get("agent_id") != agent_id:
                 raise ValueError("RKE agent_id is outside the authorized scope")
-            expected_layer = "superinvestor" if agent_id in L3_TOOL_ROSTER else "decision"
+            expected_layer = ("macro" if agent_id in MACRO_AGENTS else
+                              "superinvestor" if agent_id in L3_TOOL_ROSTER else "decision")
             if request.get("layer") != expected_layer:
                 raise ValueError("RKE layer is outside the authorized scope")
-            if agent_id not in L3_TOOL_ROSTER and (agent_id, stage) not in L4_STAGE_ROSTER:
+            if (agent_id not in L3_TOOL_ROSTER and (agent_id, stage) not in L4_STAGE_ROSTER
+                    and not (agent_id in MACRO_AGENTS and stage == agent_id)):
                 raise ValueError("RKE prior stage is outside the authorized scope")
 
     def _validate_bound_initial_calls(

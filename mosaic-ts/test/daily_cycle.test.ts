@@ -27,13 +27,17 @@ import {
 } from "../src/agents/accepted_output.js";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import {
+  createMacroSubmissionSchema,
   MACRO_AGENT_CONTRACT_VERSION,
   MACRO_AGENT_IDS,
   MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
+  MACRO_CONTEXT_SOURCE_ROLES,
   MACRO_EXECUTION_BEHAVIOR_VERSION,
   MACRO_PROMPT_BEHAVIOR_VERSION,
   MACRO_ROLE_CONTRACTS,
 } from "../src/agents/macro/_contracts.js";
+import { buildLayerOneAgentNode } from "../src/agents/macro/_factory.js";
+import { macroAgentSpec } from "../src/agents/macro/_spec.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import { STANDARD_SECTOR_AGENT_IDS } from "../src/agents/sector/_contracts.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
@@ -1080,6 +1084,72 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     clearPromptCache();
   });
 
+  it.each(
+    MACRO_AGENT_IDS,
+  )("%s reads its initial RKE context through the capability API", async (agent) => {
+    const llm = new ScriptedLlm26();
+    const seenAnalysis: string[] = [];
+    const invoke = llm.invoke.bind(llm);
+    vi.spyOn(llm, "invoke").mockImplementation(async (messages) => {
+      seenAnalysis.push(messages.map((message) => String(message.content)).join("\n"));
+      return invoke(messages);
+    });
+    const api = buildFormalApi();
+    api.toolsList = async () =>
+      FAKE_TOOLS.filter((tool) => agentToolsFor(agent).some((name) => name === tool.name));
+    const calls: string[] = [];
+    api.toolsCall = async (name, args, capability) => {
+      calls.push(name);
+      expect(args).toEqual({});
+      expect(capability?.manifest.agent_id).toBe(agent);
+      if (name === "get_rke_research_context")
+        return {
+          text: `## RKE research context for macro.${agent}\nNo matching RKE context was available for this agent/request.`,
+        };
+      return {
+        text: JSON.stringify({
+          schema_version: "macro_role_snapshot_v2",
+          role: agent,
+          as_of_date: "2024-06-24",
+          snapshot_hash: `sha256:${"0".repeat(64)}`,
+          observations: [],
+          events: [],
+          ...(agent in MACRO_CONTEXT_SOURCE_ROLES
+            ? {
+                context_only_projection: { projection_hash: `sha256:${"1".repeat(64)}` },
+              }
+            : {}),
+          direct_data_quality: 1,
+          component_data_quality: Object.fromEntries(
+            Object.keys(MACRO_ROLE_CONTRACTS[agent].components).map((key) => [key, 1]),
+          ),
+        }),
+      };
+    };
+    const result = await buildLayerOneAgentNode(
+      macroAgentSpec(agent, createMacroSubmissionSchema(agent)),
+      {
+        api,
+        config: BASE_CONFIG,
+        agentTimeoutSeconds: 0,
+        llmHandle: {
+          llm: llm as unknown as LlmHandle["llm"],
+          provider: "fake",
+          model: "fake-model",
+          baseUrl: undefined,
+        },
+      },
+    )(emptyState());
+    expect(calls).toEqual([
+      ...MACRO_ROLE_CONTRACTS[agent].requiredTools,
+      "get_rke_research_context",
+    ]);
+    expect(
+      seenAnalysis.some((text) => text.includes("No matching RKE context was available")),
+    ).toBe(true);
+    expect(result.layer1_outputs).toHaveProperty(agent);
+  });
+
   it("runs all 25 agents through 26 stages and publishes a validated final target", async () => {
     const llm = new ScriptedLlm26();
     const logs: string[] = [];
@@ -1122,8 +1192,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     // Top-level mirror preserves the single accepted upstream opportunity.
     expect(final.portfolio_actions).toEqual([
       expect.objectContaining({
-        ticker: "600800.SH",
-        sector: "agriculture",
+        ticker: "600000.SH",
+        sector: "semiconductor",
         action: "BUY",
         target_weight: 0.1,
       }),
@@ -1531,7 +1601,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
     expect(llm.perAgentStructuredCount.cio).toBe(2);
     expect(final.llm_calls).toHaveLength(26);
     expect(final.portfolio_actions).toEqual([
-      expect.objectContaining({ ticker: "600800.SH", action: "BUY", target_weight: 0.1 }),
+      expect.objectContaining({ ticker: "600000.SH", action: "BUY", target_weight: 0.1 }),
     ]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({

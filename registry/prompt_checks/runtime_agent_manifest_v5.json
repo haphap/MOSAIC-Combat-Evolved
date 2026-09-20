@@ -15,7 +15,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.china",
       "required_tools": [
-        "get_china_macro_snapshot"
+        "get_china_macro_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -49,7 +50,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.us_economy",
       "required_tools": [
-        "get_us_macro_snapshot"
+        "get_us_macro_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -83,7 +85,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.eu_economy",
       "required_tools": [
-        "get_eu_macro_snapshot"
+        "get_eu_macro_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -117,7 +120,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.central_bank",
       "required_tools": [
-        "get_central_bank_snapshot"
+        "get_central_bank_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -151,7 +155,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.us_financial_conditions",
       "required_tools": [
-        "get_us_financial_conditions_snapshot"
+        "get_us_financial_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -185,7 +190,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.euro_area_financial_conditions",
       "required_tools": [
-        "get_euro_area_financial_conditions_snapshot"
+        "get_euro_area_financial_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -219,7 +225,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.commodities",
       "required_tools": [
-        "get_commodity_conditions_snapshot"
+        "get_commodity_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",
@@ -253,7 +260,8 @@
       "layer": "macro",
       "prompt_ir_agent_id": "macro.institutional_flow",
       "required_tools": [
-        "get_market_positioning_snapshot"
+        "get_market_positioning_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "mode",

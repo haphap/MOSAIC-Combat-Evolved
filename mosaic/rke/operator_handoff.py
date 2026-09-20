@@ -49,6 +49,8 @@ from .report_intelligence import (
 )
 from .temp_paths import operator_command
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 OPERATOR_HANDOFF_JSON_PATH = "registry/handoffs/rke_operator_handoff.json"
 OPERATOR_HANDOFF_MD_PATH = "registry/handoffs/rke_operator_handoff.md"
@@ -60,6 +62,29 @@ LOCKBOX_REVIEW_CHECKLIST_MD_PATH = "registry/review_batches/lockbox_review_check
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
 MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.md"
 LOCKBOX_UPSTREAM_REVIEW_KINDS = ("gold_set", "footprint_review", "source_license")
+
+
+OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
+    "review-progress-preflight",
+    "prepare-gold-review",
+    "write-gold-review-evidence",
+    "fill-gold-review",
+    "dry-run-gold-review",
+    "apply-gold-review",
+    "prepare-footprint-review",
+    "write-footprint-review-assist",
+    "write-footprint-review-evidence",
+    "fill-footprint-review",
+    "dry-run-footprint-review",
+    "apply-footprint-review",
+    "promotion-status-before-lockbox",
+    "prepare-lockbox-review",
+    "fill-lockbox-review",
+    "dry-run-lockbox-review",
+    "promotion-dry-run",
+    "apply-lockbox-review",
+    "promotion-status-final",
+)
 
 
 @dataclass(frozen=True)
@@ -126,26 +151,6 @@ class LockboxReviewStarterResult:
     overwritten: bool
     upstream_blockers: Sequence[str]
     blockers: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _read_json(path: Path) -> Any:
@@ -252,6 +257,15 @@ def _footprint_review_gate(
             f"For batch work, prepare {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} "
             "with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress."
         ),
+    )
+
+
+def build_promotion_dry_run_command() -> str:
+    return operator_command(
+        "mosaic-rke promotion-dry-run --root . "
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
     )
 
 
@@ -836,13 +850,7 @@ def build_operator_handoff(
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
     )
-    footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
-    promotion_dry_run_command = operator_command(
-        "mosaic-rke promotion-dry-run --root . "
-        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-        f"{footprint_arg} "
-        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-    )
+    promotion_dry_run_command = build_promotion_dry_run_command()
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,

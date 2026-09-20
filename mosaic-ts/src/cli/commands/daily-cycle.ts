@@ -94,7 +94,6 @@ interface DailyCycleOptions {
   promptsRepo?: string;
   promptsRoot?: string;
   out?: string;
-  vetoThreshold?: string;
   agentTimeoutSeconds?: string;
   maxTokens?: string;
   paperPositions?: boolean;
@@ -151,10 +150,6 @@ export function registerDailyCycle(program: Command): void {
     .option("--out <path>", "Write the final state JSON to <path> instead of pretty-printing")
     .option("--checkpoint <path>", "Persist accepted Agent-stage checkpoints at <path>")
     .option("--resume", "Resume from the accepted Agent-stage checkpoint at --checkpoint")
-    .option(
-      "--veto-threshold <num>",
-      "CRO veto threshold; rejection rate > this triggers replay (default 0.5)",
-    )
     .option(
       "--agent-timeout-seconds <seconds>",
       "Per-agent wall-clock timeout in seconds (default 300; 0/off disables)",
@@ -269,7 +264,6 @@ export function registerDailyCycle(program: Command): void {
         if (nonProductionSmoke && opts.paperExecuteDeltas) {
           throw new Error("non-production smoke cannot submit paper orders");
         }
-        const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
         const agentTimeoutSeconds = parseAgentTimeoutSeconds(opts.agentTimeoutSeconds);
         const agentTimeoutMs = resolveAgentTimeoutMs(agentTimeoutSeconds);
         const onAgentLog = (msg: string) => {
@@ -419,7 +413,6 @@ export function registerDailyCycle(program: Command): void {
           llmHandle,
           api,
           config,
-          vetoThreshold,
           acceptedOutputStore,
           onLog: onAgentLog,
           ...(!nonProductionSmoke ? { promptReleaseContext } : {}),
@@ -1550,12 +1543,13 @@ function preparedOutcomeOpportunityBindings(
 // ---------------------------------------------------------------------------
 
 /** Schema-driven fake used only to validate the complete strict-contract wiring. */
-class FakeChatModel {
+export class FakeChatModel {
   private tools: Array<{ name: string; schema?: unknown }> = [];
 
   bindTools(tools: unknown): FakeChatModel {
-    this.tools = Array.isArray(tools) ? tools : [];
-    return this;
+    const bound = new FakeChatModel();
+    bound.tools = Array.isArray(tools) ? tools : [];
+    return bound;
   }
   withStructuredOutput(
     schema: unknown,

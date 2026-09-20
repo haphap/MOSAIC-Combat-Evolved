@@ -11,12 +11,10 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
-from mosaic.agents.utils.rke_research_tools import format_rke_runtime_context
 from mosaic.dataflows.interface import route_to_vendor
 from mosaic.dataflows.staged_query_receipts import (
     validate_staged_query_source_receipt,
 )
-from mosaic.rke.agent_research_context import build_rke_agent_research_materialization
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
@@ -96,18 +94,17 @@ def _required_payload(value: Any, field: str = "payload") -> str:
     return value
 
 
-def _default_rke_renderer(args: dict[str, Any]) -> Mapping[str, Any]:
-    materialization = build_rke_agent_research_materialization(
-        agent_id=args["agent_id"],
-        as_of_date=args["as_of"],
-        layer=args["layer"],
-        ticker=args.get("ticker", ""),
-        sector=args.get("sector", ""),
-        max_items=args["max_items"],
-    )
+def build_query_descriptor(
+    tool_id: str, args: Mapping[str, Any], payload: str
+) -> dict[str, str]:
+    route_id = _ROUTE_BY_TOOL[tool_id]
     return {
-        "payload": format_rke_runtime_context(materialization["context"]),
-        "source_ids": materialization["source_ids"],
+        "tool_id": tool_id,
+        "route_id": route_id,
+        "as_of": _query_as_of(tool_id, args),
+        "request_hash": canonical_hash(args),
+        "content_hash": canonical_hash({"text": payload}),
+        "pit_mode": _PIT_MODE_BY_ROUTE[route_id],
     }
 
 
@@ -326,7 +323,7 @@ class SectorRelationshipQueryMaterializer:
         receipt_authority: ReceiptAuthority,
         route_caller: Callable[..., Any] = route_to_vendor,
         digest_builder: DigestBuilder | None = None,
-        rke_renderer: Callable[[dict[str, Any]], Any] = _default_rke_renderer,
+        rke_materializer: Callable[[dict[str, Any]], Mapping[str, Any]] | None = None,
         supply_chain_archive: Any | None = None,
         source_evidence_authority: SourceEvidenceAuthority | None = None,
         source_preparer: SourcePreparer | None = None,
@@ -334,7 +331,7 @@ class SectorRelationshipQueryMaterializer:
         self.route_caller = route_caller
         self.receipt_authority = receipt_authority
         self.digest_builder = digest_builder
-        self.rke_renderer = rke_renderer
+        self.rke_materializer = rke_materializer
         self.supply_chain_archive = supply_chain_archive
         self.source_evidence_authority = source_evidence_authority
         self.source_preparer = source_preparer
@@ -365,43 +362,27 @@ class SectorRelationshipQueryMaterializer:
 
         if tool_id in _DIGEST_TOOLS and self.digest_builder is None:
             raise ValueError(f"{tool_id} requires a trusted frozen digest builder")
-        source_ids: tuple[str, ...] = ()
         if tool_id == "get_rke_research_context":
-            rendered = self.rke_renderer(dict(args))
-            if isinstance(rendered, Mapping):
-                if set(rendered) != {"payload", "source_ids"}:
-                    raise ValueError("trusted RKE renderer returned an invalid materialization")
-                raw_payload = _required_payload(rendered["payload"], "RKE payload")
-                raw_source_ids = rendered["source_ids"]
-                if not isinstance(raw_source_ids, Sequence) or isinstance(
-                    raw_source_ids, (str, bytes)
-                ):
-                    raise ValueError("trusted RKE renderer source_ids must be an array")
-                source_ids = tuple(str(value) for value in raw_source_ids)
-            else:
-                raw_payload = _required_payload(rendered, "RKE payload")
-        else:
-            if (
-                tool_id == "get_industry_policy_digest"
-                and self.source_preparer is not None
-            ):
-                self.source_preparer(tool_id, dict(args))
-            method, route_args = _legacy_call(tool_id, args)
-            raw_payload = _required_payload(self.route_caller(method, *route_args))
+            if self.rke_materializer is None:
+                raise ValueError("authoritative RKE materializer is unavailable")
+            result = self.rke_materializer(dict(args))
+            if not isinstance(result, Mapping) or set(result) != {"payload", "source_receipt_hashes"}:
+                raise ValueError("RKE authority returned an invalid materialization")
+            _required_payload(result["payload"], "RKE payload")
+            hashes = result["source_receipt_hashes"]
+            if not isinstance(hashes, Sequence) or isinstance(hashes, (str, bytes)) or not hashes:
+                raise ValueError("RKE materialization requires source receipt hashes")
+            return dict(result)
+
+        if tool_id == "get_industry_policy_digest" and self.source_preparer is not None:
+            self.source_preparer(tool_id, dict(args))
+        method, route_args = _legacy_call(tool_id, args)
+        raw_payload = _required_payload(self.route_caller(method, *route_args))
 
         if tool_id == "get_sector_index_membership":
             raw_payload = _compact_sector_index_membership(raw_payload, args)
 
-        as_of = _query_as_of(tool_id, args)
-        route_id = _ROUTE_BY_TOOL[tool_id]
-        descriptor = {
-            "tool_id": tool_id,
-            "route_id": route_id,
-            "as_of": as_of,
-            "request_hash": canonical_hash(args),
-            "content_hash": canonical_hash({"text": raw_payload}),
-            "pit_mode": _PIT_MODE_BY_ROUTE[route_id],
-        }
+        descriptor = build_query_descriptor(tool_id, args, raw_payload)
         source_receipts = None
         if self.source_evidence_authority is not None:
             source_receipts = self.source_evidence_authority(
@@ -409,7 +390,7 @@ class SectorRelationshipQueryMaterializer:
                 dict(args),
                 raw_payload,
                 dict(descriptor),
-                source_ids,
+                (),
             )
         if source_receipts is None:
             source_receipts = self.receipt_authority(dict(descriptor))
