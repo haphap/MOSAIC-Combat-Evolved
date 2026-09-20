@@ -379,6 +379,10 @@ describe("rke-fixed-benchmark helpers", () => {
     );
     updateAgentMetricsFromLog(
       metrics,
+      "[agent:phase] L2 consumer Tool 'get_rke_research_context' not executed: model-selected tool-call budget exhausted (3 total). Use already returned evidence and do not call more tools.",
+    );
+    updateAgentMetricsFromLog(
+      metrics,
       "[agent:done] L2 consumer elapsed=2m22s analysis_llm=7 tools=12 prompt_tokens=100 completion_tokens=50 llm_elapsed_ms=1000 completion_tps=50.00 source=structured score=0.60",
     );
 
@@ -389,7 +393,7 @@ describe("rke-fixed-benchmark helpers", () => {
       toolCalls: 12,
       toolCacheHits: 0,
       toolExecutions: 0,
-      toolFailureCount: 1,
+      toolFailureCount: 2,
       outputSource: "structured",
       promptTokens: 100,
       completionTokens: 50,

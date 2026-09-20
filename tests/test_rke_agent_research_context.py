@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.rke.agent_research_context import (
     FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
@@ -573,10 +574,11 @@ def test_superinvestor_runtime_preflight_blocks_generic_unfiltered_context():
         if not reason.startswith("role_filter_")
     ]
 
-    output = rke_research_tools.format_rke_runtime_context(context)
+    error = pytest.raises(
+        DataVendorUnavailable, rke_research_tools.format_rke_runtime_context, context
+    )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "superinvestor_role_filter_missing" in output
+    assert "superinvestor_role_filter_missing" in str(error.value)
 
 
 def test_superinvestor_context_uses_available_stock_snapshot():
@@ -962,8 +964,41 @@ def test_rke_research_tool_formats_context(monkeypatch):
     assert "research_only=true" in output
 
 
+def test_rke_preflight_failure_is_a_tool_execution_error(monkeypatch):
+    from types import SimpleNamespace
+
+    from mosaic.bridge.handlers import tools as bridge_tools
+    from mosaic.bridge.protocol import RpcError, TOOL_EXECUTION_ERROR
+
+    monkeypatch.setattr(
+        rke_research_tools, "build_rke_agent_research_context", lambda **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        bridge_tools,
+        "get_capability_store",
+        lambda: SimpleNamespace(
+            call_tool_result=lambda _capability, _name, args: (
+                rke_research_tools.get_rke_research_context.invoke(args)
+            )
+        ),
+    )
+    with pytest.raises(RpcError) as error:
+        bridge_tools.tools_call(
+            {
+                "capability": {},
+                "name": "get_rke_research_context",
+                "args": {"agent_id": "cro", "as_of_date": "2026-07-09"},
+            }
+        )
+    assert error.value.code == TOOL_EXECUTION_ERROR
+    assert "RKE context preflight failed" in error.value.message
+    assert "context_items_missing" in error.value.message
+
+
 def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": SCHEMA_VERSION,
@@ -987,14 +1022,14 @@ def test_rke_runtime_context_preflight_flags_rank_order_without_sorting():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "retrieval_rank_order_changed" in output
-    assert "RKE context body withheld: runtime preflight blocked." in output
-    assert "### Prior FCRED-2" not in output
+    assert "retrieval_rank_order_changed" in str(error.value)
+    assert "### Prior FCRED-2" not in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_rank_gaps():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": SCHEMA_VERSION,
@@ -1013,12 +1048,13 @@ def test_rke_runtime_context_preflight_blocks_rank_gaps():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "retrieval_rank_sequence_invalid" in output
+    assert "retrieval_rank_sequence_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1036,12 +1072,13 @@ def test_rke_runtime_context_preflight_blocks_wrong_ranking_policy():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "ranking_policy_id_mismatch" in output
+    assert "ranking_policy_id_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_summary_ranking_policy_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1074,12 +1111,13 @@ def test_rke_runtime_context_preflight_blocks_summary_ranking_policy_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "summary_ranking_policy_id_mismatch" in output
+    assert "summary_ranking_policy_id_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_summary_current_data_missing():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1110,13 +1148,13 @@ def test_rke_runtime_context_preflight_blocks_summary_current_data_missing():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "summary_current_data_required_missing" in output
-    assert "current_data_required=false" in output
+    assert "summary_current_data_required_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_unsupported_priority_bucket():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1134,12 +1172,13 @@ def test_rke_runtime_context_preflight_blocks_unsupported_priority_bucket():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "priority_bucket_unsupported" in output
+    assert "priority_bucket_unsupported" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_priority_rank_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1157,12 +1196,13 @@ def test_rke_runtime_context_preflight_blocks_priority_rank_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "priority_bucket_rank_mismatch" in output
+    assert "priority_bucket_rank_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_invalid_truncation_count():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1180,12 +1220,13 @@ def test_rke_runtime_context_preflight_blocks_invalid_truncation_count():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "truncated_item_count_invalid" in output
+    assert "truncated_item_count_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1203,15 +1244,14 @@ def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "current_data_required_missing" in output
-    assert "current_data_required_fields_invalid" in output
-    assert "current_data_required=false" in output
-    assert "RKE context body withheld: runtime preflight blocked." in output
+    assert "current_data_required_missing" in str(error.value)
+    assert "current_data_required_fields_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_current_data_fields():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1231,12 +1271,13 @@ def test_rke_runtime_context_preflight_blocks_bad_current_data_fields():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "current_data_required_fields_invalid" in output
+    assert "current_data_required_fields_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -1261,12 +1302,10 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_production_signal_not_disabled" in output
-    assert "item_use_policy_invalid" in output
-    assert "item_actionability_invalid" in output
-    assert "item_actionability_guard_invalid" in output
-    assert "RKE context body withheld: runtime preflight blocked." in output
+    assert "item_production_signal_not_disabled" in str(error.value)
+    assert "item_use_policy_invalid" in str(error.value)
+    assert "item_actionability_invalid" in str(error.value)
+    assert "item_actionability_guard_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_formats_good_item_shadow_policy():
@@ -1349,7 +1388,9 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
 
 
 def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1413,12 +1454,13 @@ def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "outcome_label_summary_invalid" in output
+    assert "outcome_label_summary_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "as_of_date": "2026-06-27",
@@ -1439,14 +1481,15 @@ def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_freshness_bucket_invalid" in output
-    assert "item_latest_exit_date_after_as_of" in output
-    assert "item_freshness_bucket_mismatch" in output
+    assert "item_freshness_bucket_invalid" in str(error.value)
+    assert "item_latest_exit_date_after_as_of" in str(error.value)
+    assert "item_freshness_bucket_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_invalid_exit_dates():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "as_of_date": "2026-06-27",
@@ -1475,13 +1518,14 @@ def test_rke_runtime_context_preflight_blocks_invalid_exit_dates():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_latest_exit_date_invalid" in output
-    assert "outcome_label_summary_invalid" in output
+    assert "item_latest_exit_date_invalid" in str(error.value)
+    assert "outcome_label_summary_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_empty_outcome_latest_exit():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "as_of_date": "2026-06-27",
@@ -1510,12 +1554,13 @@ def test_rke_runtime_context_preflight_blocks_empty_outcome_latest_exit():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "outcome_label_summary_invalid" in output
+    assert "outcome_label_summary_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "superinvestor.munger",
             "requested_agent_id": "munger",
@@ -1548,13 +1593,14 @@ def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "context_snapshot_status_invalid" in output
-    assert "context_snapshot_missing_reason_not_ranked" in output
+    assert "context_snapshot_status_invalid" in str(error.value)
+    assert "context_snapshot_missing_reason_not_ranked" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_ranking_metadata():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1605,14 +1651,15 @@ def test_rke_runtime_context_preflight_blocks_missing_ranking_metadata():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_ranking_metadata_missing" in output
-    assert "item_latest_exit_date_missing" in output
-    assert "item_combined_weight_invalid" in output
+    assert "item_ranking_metadata_missing" in str(error.value)
+    assert "item_latest_exit_date_missing" in str(error.value)
+    assert "item_combined_weight_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1676,17 +1723,18 @@ def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_performance_bucket_invalid" in output
-    assert "item_reliability_bucket_invalid" in output
-    assert "item_ranking_metadata_invalid" in output
-    assert "item_combined_weight_invalid" in output
-    assert "item_n_effective_invalid" in output
-    assert "outcome_label_summary_invalid" in output
+    assert "item_performance_bucket_invalid" in str(error.value)
+    assert "item_reliability_bucket_invalid" in str(error.value)
+    assert "item_ranking_metadata_invalid" in str(error.value)
+    assert "item_combined_weight_invalid" in str(error.value)
+    assert "item_n_effective_invalid" in str(error.value)
+    assert "outcome_label_summary_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1732,13 +1780,14 @@ def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_context_metadata_missing" in output
-    assert "item_regime_types_invalid" in output
+    assert "item_context_metadata_missing" in str(error.value)
+    assert "item_regime_types_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1783,12 +1832,13 @@ def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_recipe_tool_gap_ids_invalid" in output
+    assert "item_recipe_tool_gap_ids_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_failure_tags():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1831,12 +1881,13 @@ def test_rke_runtime_context_preflight_blocks_bad_failure_tags():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "known_failure_mode_tags_missing" in output
+    assert "known_failure_mode_tags_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_reliability_metadata():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1876,13 +1927,14 @@ def test_rke_runtime_context_preflight_blocks_missing_reliability_metadata():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_reliability_bucket_missing" in output
-    assert "item_n_effective_invalid" in output
+    assert "item_reliability_bucket_missing" in str(error.value)
+    assert "item_n_effective_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_item_target_metadata():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1919,12 +1971,13 @@ def test_rke_runtime_context_preflight_blocks_missing_item_target_metadata():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_target_metadata_missing" in output
+    assert "item_target_metadata_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_redacted_claim_id():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1960,12 +2013,13 @@ def test_rke_runtime_context_preflight_blocks_missing_redacted_claim_id():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "redacted_claim_id_missing" in output
+    assert "redacted_claim_id_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_empty_context_without_no_prior_reason():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "dollar",
@@ -1990,12 +2044,13 @@ def test_rke_runtime_context_preflight_blocks_empty_context_without_no_prior_rea
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "no_prior_reason_missing" in output
+    assert "no_prior_reason_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_requested_agent_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "requested_agent_id": "burry",
@@ -2020,12 +2075,13 @@ def test_rke_runtime_context_preflight_blocks_requested_agent_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "requested_agent_id_mismatch" in output
+    assert "requested_agent_id_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_as_of_date():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": SCHEMA_VERSION,
@@ -2049,12 +2105,13 @@ def test_rke_runtime_context_preflight_blocks_bad_as_of_date():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "as_of_date_invalid" in output
+    assert "as_of_date_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_layer_agent_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": SCHEMA_VERSION,
@@ -2077,12 +2134,13 @@ def test_rke_runtime_context_preflight_blocks_layer_agent_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "layer_agent_mismatch" in output
+    assert "layer_agent_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": "legacy_context",
@@ -2103,12 +2161,13 @@ def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "schema_version_mismatch" in output
+    assert "schema_version_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_forbidden_field_count():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "schema_version": SCHEMA_VERSION,
@@ -2130,12 +2189,13 @@ def test_rke_runtime_context_preflight_blocks_forbidden_field_count():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "forbidden_field_count_invalid" in output
+    assert "forbidden_field_count_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2155,12 +2215,13 @@ def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "forbidden_field_policy_invalid" in output
+    assert "forbidden_field_policy_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": False,
@@ -2188,14 +2249,15 @@ def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "research_only_missing" in output
-    assert "context_actionability_guard_invalid" in output
-    assert "private_text_boundary_missing" in output
+    assert "research_only_missing" in str(error.value)
+    assert "context_actionability_guard_invalid" in str(error.value)
+    assert "private_text_boundary_missing" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2225,14 +2287,14 @@ def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "public_safe_context_violation" in output
-    assert "RKE context body withheld: public-safe context violation." in output
-    assert ".mosaic/rke/private.pdf" not in output
+    assert "public_safe_context_violation" in str(error.value)
+    assert ".mosaic/rke/private.pdf" not in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_malformed_context_items():
-    malformed = rke_research_tools.format_rke_runtime_context(
+    malformed = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2247,7 +2309,9 @@ def test_rke_runtime_context_preflight_blocks_malformed_context_items():
             },
         }
     )
-    non_object = rke_research_tools.format_rke_runtime_context(
+    non_object = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2263,14 +2327,14 @@ def test_rke_runtime_context_preflight_blocks_malformed_context_items():
         }
     )
 
-    assert "context_items_malformed" in malformed
-    assert "context_item_not_object" in non_object
-    assert "runtime_preflight_status=blocked" in malformed
-    assert "runtime_preflight_status=blocked" in non_object
+    assert "context_items_malformed" in str(malformed.value)
+    assert "context_item_not_object" in str(non_object.value)
 
 
 def test_rke_runtime_context_preflight_blocks_count_metadata_mismatch():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2299,13 +2363,14 @@ def test_rke_runtime_context_preflight_blocks_count_metadata_mismatch():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "item_count_mismatch" in output
-    assert "truncated_item_count_mismatch" in output
+    assert "item_count_mismatch" in str(error.value)
+    assert "truncated_item_count_mismatch" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_bad_ranking_reasons():
-    output = rke_research_tools.format_rke_runtime_context(
+    error = pytest.raises(
+        DataVendorUnavailable,
+        rke_research_tools.format_rke_runtime_context,
         {
             "agent_id": "macro.dollar",
             "research_only": True,
@@ -2335,8 +2400,7 @@ def test_rke_runtime_context_preflight_blocks_bad_ranking_reasons():
         }
     )
 
-    assert "runtime_preflight_status=blocked" in output
-    assert "ranking_reason_codes_missing" in output
+    assert "ranking_reason_codes_missing" in str(error.value)
 
 
 def test_normalize_agent_id_accepts_ts_and_rke_forms():
