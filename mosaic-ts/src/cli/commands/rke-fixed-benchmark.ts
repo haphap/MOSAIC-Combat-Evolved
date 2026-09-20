@@ -4,6 +4,10 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
 import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
+import {
+  RKE_CALL_OUTCOMES,
+  type RkeCallOutcome,
+} from "../../agents/helpers/runtime_evidence_types.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { buildDailyCycleRkeFootprintRows } from "../../agents/rke_footprints.js";
 import type { DailyCycleStateType } from "../../agents/state.js";
@@ -96,7 +100,7 @@ interface BenchmarkRunStats {
   errorCount: number;
 }
 
-interface AgentBenchmarkMetric {
+export interface AgentBenchmarkMetric {
   agent: string;
   layer: string;
   status: "done" | "timeout" | "error" | "started";
@@ -109,6 +113,10 @@ interface AgentBenchmarkMetric {
   toolCallCountsByName: Record<string, number>;
   toolCallFingerprints: Record<string, number>;
   toolFailureCount: number;
+  rkeDispatches: number;
+  rkeCompleted: number;
+  rkeCacheHits: number;
+  rkeOutcomeCounts: Partial<Record<RkeCallOutcome, number>>;
   outputSource: "structured" | "fallback" | "unknown";
   promptTokens: number;
   completionTokens: number;
@@ -134,6 +142,7 @@ interface BenchmarkMetricRecord {
   tool_cache_hits_total: number;
   tool_executions_total: number;
   tool_failure_count: number;
+  rke_calls: ReturnType<typeof buildRkeCallSummary>;
   tool_call_counts_by_name: Record<string, number>;
   tool_call_fingerprints: Record<string, number>;
   analysis_llm_invocations_total: number;
@@ -288,8 +297,7 @@ export async function runRkeFixedBenchmark(
         initialState.trace_id = `${benchmarkRunId}:${modelConfig.model_config_id}:${item.as_of_date}`;
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         assertAcceptedDailyCycle(final);
-        const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
-          currentDataConfirmed: !opts.fakeLlm,
+        const footprintRows = buildDailyCycleRkeFootprintRows(final, {
           episodeId: item.episode_id,
           modelConfigId: modelConfig.model_config_id,
         });
@@ -634,7 +642,15 @@ export function updateAgentMetricsFromLog(
   if (kind === "phase") {
     recordToolNames(metric, rest);
     recordToolFingerprints(metric, rest);
-    if (/Tool '[^']+' raised:/.test(rest)) metric.toolFailureCount += 1;
+    if (rest === "rke_dispatch") metric.rkeDispatches += 1;
+    const rkeCall = rest.match(/^rke_call outcome=(\w+) cache_hit=([01])$/);
+    const outcome = rkeCall?.[1] as RkeCallOutcome | undefined;
+    if (outcome && RKE_CALL_OUTCOMES.includes(outcome)) {
+      metric.rkeCompleted += 1;
+      if (rkeCall?.[2] === "1") metric.rkeCacheHits += 1;
+      else metric.rkeOutcomeCounts[outcome] = (metric.rkeOutcomeCounts[outcome] ?? 0) + 1;
+    }
+    if (/^Tool '[^']+' (?:raised|not executed):/.test(rest)) metric.toolFailureCount += 1;
     return;
   }
 
@@ -706,6 +722,7 @@ export function buildBenchmarkMetricRecord(
     tool_cache_hits_total: sum(agents, (agent) => agent.toolCacheHits),
     tool_executions_total: sum(agents, (agent) => agent.toolExecutions),
     tool_failure_count: sum(agents, (agent) => agent.toolFailureCount),
+    rke_calls: buildRkeCallSummary(metrics),
     tool_call_counts_by_name: toolCallCountsByName,
     tool_call_fingerprints: toolCallFingerprints,
     analysis_llm_invocations_total: sum(agents, (agent) => agent.analysisLlmInvocations),
@@ -717,6 +734,36 @@ export function buildBenchmarkMetricRecord(
         ? round(observedCompletionTokens / (observedLlmElapsedMs / 1000), 4)
         : null,
     agents,
+  };
+}
+
+export function buildRkeCallSummary(metrics: ReadonlyMap<string, AgentBenchmarkMetric>) {
+  const agents = [...metrics.values()];
+  const requested = sum(
+    agents,
+    (agent) => agent.toolCallCountsByName.get_rke_research_context ?? 0,
+  );
+  const dispatched = sum(agents, (agent) => agent.rkeDispatches);
+  const completed = sum(agents, (agent) => agent.rkeCompleted);
+  const outcomeCounts = Object.fromEntries(
+    RKE_CALL_OUTCOMES.map((outcome) => [
+      outcome,
+      sum(agents, (agent) => agent.rkeOutcomeCounts[outcome] ?? 0),
+    ]),
+  ) as Record<RkeCallOutcome, number>;
+  return {
+    requested,
+    dispatched,
+    completed,
+    cache_hits: sum(agents, (agent) => agent.rkeCacheHits),
+    // Includes interrupted calls and older logs without structured status events.
+    unclassified_requests: Math.max(0, requested - completed),
+    outcome_counts: outcomeCounts,
+    available_per_dispatch: dispatched > 0 ? round(outcomeCounts.available / dispatched, 4) : null,
+    context_returned_per_dispatch:
+      dispatched > 0
+        ? round((outcomeCounts.available + outcomeCounts.normal_empty) / dispatched, 4)
+        : null,
   };
 }
 
@@ -734,6 +781,10 @@ function emptyAgentMetric(agent: string, layer: string): AgentBenchmarkMetric {
     toolCallCountsByName: {},
     toolCallFingerprints: {},
     toolFailureCount: 0,
+    rkeDispatches: 0,
+    rkeCompleted: 0,
+    rkeCacheHits: 0,
+    rkeOutcomeCounts: {},
     outputSource: "unknown",
     promptTokens: 0,
     completionTokens: 0,

@@ -22,10 +22,13 @@ import {
 } from "../_backtest_helpers.js";
 import { applyPromptSourceOverrides } from "../prompt-source.js";
 import {
+  type AgentBenchmarkMetric,
   buildPromptPinsByAgent,
+  buildRkeCallSummary,
   buildRkeContextMetadataByAgent,
   type PromptPin,
   type RkeContextMetadata,
+  updateAgentMetricsFromLog,
 } from "./rke-fixed-benchmark.js";
 
 const PRIVATE_OUTPUT_DIR = ".mosaic/rke/all_agent_evolution/shadow_replay";
@@ -71,6 +74,7 @@ interface ReplayStats {
   replayFootprintCount: number;
   privacyScanPassed: boolean;
   currentDataConfirmed: boolean;
+  rkeCalls?: ReturnType<typeof buildRkeCallSummary>;
 }
 
 export function registerRkeShadowReplay(program: Command): void {
@@ -154,12 +158,16 @@ export async function runRkeShadowReplay(
   const promptPinsByAgent = buildPromptPinsByAgent(contractCheck.rows, config.output_language);
   const llmHandle = makeReplayLlmHandle(config, opts);
   await assertStructuredOutputCapability(llmHandle.llm);
+  const agentMetrics = new Map<string, AgentBenchmarkMetric>();
   const graph = buildDailyCycleGraph({
     llmHandle,
     api,
     config,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
-    onLog,
+    onLog: (message) => {
+      updateAgentMetricsFromLog(agentMetrics, message);
+      onLog(message);
+    },
   });
   const maxRuns = opts.maxRuns ? Number.parseInt(opts.maxRuns, 10) : undefined;
   const stats: ReplayStats = {
@@ -178,7 +186,13 @@ export async function runRkeShadowReplay(
     initialState.trace_id = `${benchmarkRunId}:${replayRunId}:${asOfDate}`;
     initialState.current_positions = currentPositions;
     initialState.layer4_outputs.previous_target_state = previousTarget;
-    const final = (await graph.invoke(initialState)) as DailyCycleStateType;
+    let final: DailyCycleStateType;
+    try {
+      final = (await graph.invoke(initialState)) as DailyCycleStateType;
+    } finally {
+      stats.rkeCalls = buildRkeCallSummary(agentMetrics);
+      writeReplayMetricArtifact(benchmarkRunId, replayRunId, stats);
+    }
     assertAcceptedDailyCycle(final);
     currentPositions = applyBacktestPortfolioActionsToPositions(
       currentPositions,
@@ -186,8 +200,7 @@ export async function runRkeShadowReplay(
       asOfDate,
     );
     previousTarget = carryPreviousTargetState(final);
-    const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
-      currentDataConfirmed: !opts.fakeLlm,
+    const footprintRows = buildDailyCycleRkeFootprintRows(final, {
       replayRunId,
     });
     const rows = collectReplayOutputRecords(

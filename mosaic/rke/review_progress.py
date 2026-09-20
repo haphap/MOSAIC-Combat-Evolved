@@ -2387,15 +2387,6 @@ def _render_field_contract_lines(
     return lines
 
 
-def _promotion_dry_run_command(source_license: ManualReviewGateProgress) -> str:
-    return operator_command(
-        "mosaic-rke promotion-dry-run --root . "
-        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
-        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-    )
-
-
 def build_manual_review_progress(root: str | Path = ".") -> ManualReviewProgressReport:
     root_path = Path(root)
     gates = (
@@ -3520,6 +3511,8 @@ def build_manual_review_action_queue(
 
 
 def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) -> str:
+    from .operator_handoff import build_promotion_dry_run_command
+
     gate_lookup = {gate.review_kind: gate for gate in report.gates}
     gold = gate_lookup["gold_set"]
     footprint = gate_lookup["footprint_review"]
@@ -3758,7 +3751,7 @@ def render_manual_review_runbook_markdown(report: ManualReviewProgressReport) ->
         "",
         "## Promotion Dry Run",
         "",
-        f"`{_promotion_dry_run_command(source_license)}`",
+        f"`{build_promotion_dry_run_command()}`",
         "",
     ]
     lines.extend(

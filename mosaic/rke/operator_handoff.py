@@ -64,6 +64,29 @@ MANUAL_REVIEW_RUNBOOK_MD_PATH = "registry/review_batches/manual_review_runbook.m
 LOCKBOX_UPSTREAM_REVIEW_KINDS = ("gold_set", "footprint_review", "source_license")
 
 
+OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
+    "review-progress-preflight",
+    "prepare-gold-review",
+    "write-gold-review-evidence",
+    "fill-gold-review",
+    "dry-run-gold-review",
+    "apply-gold-review",
+    "prepare-footprint-review",
+    "write-footprint-review-assist",
+    "write-footprint-review-evidence",
+    "fill-footprint-review",
+    "dry-run-footprint-review",
+    "apply-footprint-review",
+    "promotion-status-before-lockbox",
+    "prepare-lockbox-review",
+    "fill-lockbox-review",
+    "dry-run-lockbox-review",
+    "promotion-dry-run",
+    "apply-lockbox-review",
+    "promotion-status-final",
+)
+
+
 @dataclass(frozen=True)
 class OperatorGateHandoff:
     gate_id: str
@@ -234,6 +257,15 @@ def _footprint_review_gate(
             f"For batch work, prepare {ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH} "
             "with --limit/--offset, dry-run it, and apply accepted batches to accumulate progress."
         ),
+    )
+
+
+def build_promotion_dry_run_command() -> str:
+    return operator_command(
+        "mosaic-rke promotion-dry-run --root . "
+        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
+        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH} "
+        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
     )
 
 
@@ -818,13 +850,7 @@ def build_operator_handoff(
         OPERATOR_HANDOFF_JSON_PATH,
         OPERATOR_HANDOFF_MD_PATH,
     )
-    footprint_arg = f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}"
-    promotion_dry_run_command = operator_command(
-        "mosaic-rke promotion-dry-run --root . "
-        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH} "
-        f"{footprint_arg} "
-        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}"
-    )
+    promotion_dry_run_command = build_promotion_dry_run_command()
     command_sequence = _operator_command_sequence(
         gates,
         promotion_dry_run_command=promotion_dry_run_command,

@@ -52,7 +52,7 @@ def test_v2_coverage_and_audit_track_close_all_active_bindings():
 
     binding_ids = [row["binding_id"] for row in binding["bindings"]]
     coverage_ids = [row["binding_id"] for row in coverage["coverage"]]
-    assert len(binding_ids) == len(coverage_ids) == 199
+    assert len(binding_ids) == len(coverage_ids) == 207
     assert len(set(coverage_ids)) == len(coverage_ids)
     assert sorted(binding_ids) == coverage_ids
     assert all(

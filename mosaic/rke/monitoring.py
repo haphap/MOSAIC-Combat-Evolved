@@ -6,6 +6,41 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
 
+CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
+CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
+
+
+def pearson_correlation(pairs: Sequence[tuple[float, float]]) -> float | None:
+    if len(pairs) < 2:
+        return None
+    xs = [item[0] for item in pairs]
+    ys = [item[1] for item in pairs]
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(ys) / len(ys)
+    x_var = sum((value - x_mean) ** 2 for value in xs)
+    y_var = sum((value - y_mean) ** 2 for value in ys)
+    if x_var <= 0 or y_var <= 0:
+        return None
+    covariance = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
+    return covariance / ((x_var * y_var) ** 0.5)
+
+
+def confidence_delta_bucket(delta: float | None) -> str:
+    if delta is None or delta == 0:
+        return "zero"
+    if delta < 0:
+        return "negative"
+    if delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD:
+        return "high_positive"
+    return "low_positive"
+
+
+def is_new_regime_observation(row: Mapping[str, Any]) -> bool:
+    if row.get("regime_is_new") is True:
+        return True
+    regime_status = str(row.get("regime_status") or "").strip().lower()
+    return regime_status in {"new", "new_regime", "unseen_regime"}
+
 @dataclass(frozen=True)
 class PaperTradingSnapshot:
     rule_id: str

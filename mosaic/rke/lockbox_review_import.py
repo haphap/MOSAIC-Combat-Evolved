@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -228,20 +228,17 @@ def _write_lockbox_downstream(root_path: Path) -> dict[str, str]:
     return outputs
 
 
-def apply_lockbox_review_import(
-    root: str | Path,
-    input_path: str | Path,
+def build_lockbox_review_import_report(
+    input_payload: Any,
+    target_payload: Any,
+    policy_payload: Any,
     *,
-    dry_run: bool = False,
+    input_path: str | Path,
+    dry_run: bool = True,
+    parse_errors: Sequence[str] = (),
 ) -> LockboxReviewImportReport:
-    root_path = Path(root)
-    resolved_input = _resolve_path(root_path, input_path)
-    target_path = root_path / LOCKBOX_REVIEW_PATH
-    rejected_reasons: list[str] = []
-    target_payload, target_error = _read_json_or_error(target_path, "lockbox target")
-    policy_payload, policy_error = _read_json_or_error(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
-    input_payload, input_error = _read_json_or_error(resolved_input, "lockbox review import")
-    rejected_reasons.extend(error for error in (target_error, policy_error, input_error) if error)
+    """Validate a supplied decision against its target and policy without writes."""
+    rejected_reasons = list(parse_errors)
     if not isinstance(target_payload, Mapping):
         rejected_reasons.append("lockbox target must be object")
     if not isinstance(policy_payload, Mapping):
@@ -265,28 +262,45 @@ def apply_lockbox_review_import(
         if not rejected_reasons
         else evaluate_lockbox_review(None)
     )
-    accepted = not rejected_reasons
-    downstream_outputs: dict[str, str] = {}
-    applied = False
-    if accepted and not dry_run:
-        _write_json(target_path, normalized)
-        downstream_outputs = _write_lockbox_downstream(root_path)
-        applied = True
-
-    report = LockboxReviewImportReport(
+    return LockboxReviewImportReport(
         report_id="RKE-LOCKBOX-REVIEW-IMPORT-REPORT-20260606",
-        input_path=str(resolved_input),
+        input_path=str(input_path),
         target_path=LOCKBOX_REVIEW_PATH,
         dry_run=dry_run,
-        accepted=accepted,
-        applied=applied,
+        accepted=not rejected_reasons,
+        applied=False,
         result=str(normalized.get("result") or ""),
         production_allowed=decision.production_allowed,
         decision_state=decision.state,
         next_state=decision.next_state,
         rejected_reasons=tuple(rejected_reasons),
         policy_reasons=tuple(decision.reasons),
-        downstream_outputs=downstream_outputs,
+        downstream_outputs={},
     )
+
+
+def apply_lockbox_review_import(
+    root: str | Path,
+    input_path: str | Path,
+    *,
+    dry_run: bool = False,
+) -> LockboxReviewImportReport:
+    root_path = Path(root)
+    resolved_input = _resolve_path(root_path, input_path)
+    target_path = root_path / LOCKBOX_REVIEW_PATH
+    target_payload, target_error = _read_json_or_error(target_path, "lockbox target")
+    policy_payload, policy_error = _read_json_or_error(root_path / LOCKBOX_POLICY_PATH, "lockbox policy")
+    input_payload, input_error = _read_json_or_error(resolved_input, "lockbox review import")
+    report = build_lockbox_review_import_report(
+        input_payload,
+        target_payload,
+        policy_payload,
+        input_path=resolved_input,
+        dry_run=dry_run,
+        parse_errors=tuple(error for error in (target_error, policy_error, input_error) if error),
+    )
+    if report.accepted and not dry_run:
+        _write_json(target_path, _normalize_lockbox_row(input_payload, target_payload))
+        report = replace(report, applied=True, downstream_outputs=_write_lockbox_downstream(root_path))
     _write_json(root_path / LOCKBOX_REVIEW_IMPORT_REPORT_PATH, asdict(report))
     return report

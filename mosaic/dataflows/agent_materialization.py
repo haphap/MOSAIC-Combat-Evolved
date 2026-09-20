@@ -660,7 +660,11 @@ class _SealedReceipt:
         body = _json_copy(payload)
         body.pop("receipt_hash", None)
         body["receipt_hash"] = canonical_hash(body)
-        return cls(body)
+        cls.validator(body)
+        # The owned copy was just sealed here; external loads still verify in __post_init__.
+        receipt = object.__new__(cls)
+        object.__setattr__(receipt, "_payload", body)
+        return receipt
 
     @classmethod
     def from_dict(cls: type[ReceiptT], payload: Mapping[str, Any]) -> ReceiptT:

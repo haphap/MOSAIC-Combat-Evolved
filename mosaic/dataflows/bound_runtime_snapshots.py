@@ -1283,7 +1283,6 @@ def _seal_snapshot(
         "constraint_set_hash": constraint_hash,
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": canonical_hash(role_context),
         "upstream_accepted_output_refs": refs,
         "evidence_ledger": evidence,
     }
@@ -1495,7 +1494,7 @@ def compile_bound_runtime_snapshot(
             ],
         }
         return _seal_snapshot(
-            contract_version="cio_decision_snapshot_v1",
+            contract_version="cio_decision_snapshot_v2",
             graph_run_id=graph_run_id,
             agent_id=agent_id,
             stage=stage,
@@ -1610,7 +1609,7 @@ def compile_bound_runtime_snapshot(
             ],
         }
         return _seal_snapshot(
-            contract_version="execution_snapshot_v1",
+            contract_version="execution_snapshot_v2",
             graph_run_id=graph_run_id,
             agent_id=agent_id,
             stage=stage,
@@ -1681,7 +1680,7 @@ def compile_bound_runtime_snapshot(
             ],
         }
         return _seal_snapshot(
-            contract_version="cro_risk_snapshot_v1",
+            contract_version="cro_risk_snapshot_v2",
             graph_run_id=graph_run_id,
             agent_id=agent_id,
             stage=stage,
@@ -1733,7 +1732,7 @@ def compile_bound_runtime_snapshot(
             ],
         }
         return _seal_snapshot(
-            contract_version="cio_decision_snapshot_v1",
+            contract_version="cio_decision_snapshot_v2",
             graph_run_id=graph_run_id,
             agent_id=agent_id,
             stage=stage,
@@ -1788,7 +1787,7 @@ def compile_bound_runtime_snapshot(
             "excluded_security_set_hash": selected_hash,
             "evidence_ids": accepted_evidence_ids,
         }
-        contract_version = "alpha_candidate_snapshot_v1"
+        contract_version = "alpha_candidate_snapshot_v2"
     else:
         role_context = {
             "context_kind": "SUPERINVESTOR_CANDIDATE_SELECTION",
@@ -1797,7 +1796,7 @@ def compile_bound_runtime_snapshot(
             "candidate_origin_set_hash": origin_hash,
             "evidence_ids": accepted_evidence_ids,
         }
-        contract_version = "superinvestor_candidate_snapshot_v1"
+        contract_version = "superinvestor_candidate_snapshot_v2"
     return _seal_snapshot(
         contract_version=contract_version,
         graph_run_id=graph_run_id,

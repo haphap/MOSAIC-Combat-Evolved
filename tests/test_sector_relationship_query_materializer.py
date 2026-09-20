@@ -5,9 +5,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.sector_relationship_queries import (
     DIRECT_VENDOR_TOOL_IDS,
@@ -64,6 +66,36 @@ def _digest_builder(tool_id: str, raw: str, args: dict) -> dict:
         "model_hash": canonical_hash({"model": "digest-model-v1"}),
         "prompt_hash": canonical_hash({"prompt": tool_id, "args": args}),
     }
+
+
+def test_rke_preflight_failure_does_not_seal_a_successful_query(monkeypatch, tmp_path):
+    from mosaic.dataflows.sector_relationship_source_evidence import SectorRelationshipSourceEvidenceAuthority
+    monkeypatch.setattr(
+        "mosaic.dataflows.sector_relationship_source_evidence.build_rke_agent_research_materialization",
+        lambda **_kwargs: {
+            "context": {"claim_text": "private report prose"},
+            "source_ids": (),
+        },
+    )
+    receipts: list[dict] = []
+    store = Mock()
+    authority = SectorRelationshipSourceEvidenceAuthority(root=tmp_path, receipt_store=store)
+    materializer = SectorRelationshipQueryMaterializer(
+        rke_materializer=authority.materialize_rke,
+        route_caller=lambda *_args: pytest.fail("RKE must not use a vendor route"),
+        receipt_authority=_receipt_authority(receipts),
+        digest_builder=_digest_builder,
+    )
+    with pytest.raises(DataVendorUnavailable, match="RKE context preflight failed") as error:
+        materializer(
+            "get_rke_research_context",
+            {"agent_id": "cro", "as_of": AS_OF, "layer": "decision", "max_items": 3},
+        )
+    assert "public_safe_context_violation" in str(error.value)
+    assert "private report prose" not in str(error.value)
+    assert error.value.reason_code == "RKE_CONTEXT_PREFLIGHT_FAILED"
+    assert receipts == []
+    store.register.assert_not_called()
 
 
 def test_index_weight_materialization_calls_one_exact_adapter_and_compacts_pit_rows():
@@ -324,7 +356,6 @@ def test_materializer_maps_normalized_arguments_to_legacy_routes_exactly(
         route_caller=route_caller,
         receipt_authority=_receipt_authority(receipts),
         digest_builder=_digest_builder,
-        rke_renderer=lambda args: f"rke:{args['agent_id']}",
     )
     result = materializer(tool_id, args)
 
@@ -360,13 +391,16 @@ def test_materializer_maps_normalized_arguments_to_legacy_routes_exactly(
         assert result["payload"] == f"raw:{expected_method}"
 
 
-def test_rke_uses_local_public_safe_renderer_and_never_routes_to_vendor():
+def test_rke_uses_owned_materialization_and_never_routes_to_vendor():
     receipt_descriptors: list[dict] = []
     materializer = SectorRelationshipQueryMaterializer(
         route_caller=lambda *args: pytest.fail(f"unexpected route call: {args}"),
         receipt_authority=_receipt_authority(receipt_descriptors),
         digest_builder=_digest_builder,
-        rke_renderer=lambda args: f"public-safe-rke:{args['agent_id']}:{args['as_of']}",
+        rke_materializer=lambda args: {
+            "payload": f"public-safe-rke:{args['agent_id']}:{args['as_of']}",
+            "source_receipt_hashes": [canonical_hash({"source": 1})],
+        },
     )
     args = {
         "agent_id": "financials",
@@ -378,7 +412,7 @@ def test_rke_uses_local_public_safe_renderer_and_never_routes_to_vendor():
     }
     result = materializer("get_rke_research_context", args)
     assert result["payload"] == "public-safe-rke:financials:2026-07-09"
-    assert receipt_descriptors[0]["route_id"] == "private.rke_report_intelligence"
+    assert receipt_descriptors == []
 
 
 def test_materializer_prepares_only_policy_source_before_route_call():
@@ -412,8 +446,10 @@ def test_materializer_prepares_only_policy_source_before_route_call():
         receipt_authority=_receipt_authority([]),
         digest_builder=_digest_builder,
         source_preparer=prepare,
-        rke_renderer=lambda args: (
-            events.append(("render", args["agent_id"])) or "rke payload"
+        rke_materializer=lambda args: (
+            events.append(("materialize", args["agent_id"])) or {
+                "payload": "rke payload", "source_receipt_hashes": [canonical_hash({"source": 1})],
+            }
         ),
     )
 
@@ -435,7 +471,7 @@ def test_materializer_prepares_only_policy_source_before_route_call():
         ("prepare", "get_industry_policy_digest"),
         ("route", "get_industry_policy"),
         ("route", "get_stock_research"),
-        ("render", "financials"),
+        ("materialize", "financials"),
     ]
     assert policy_route_args == [(AS_OF, 7, "govcn", "半导体")]
 
@@ -532,7 +568,7 @@ def test_materializer_limits_empty_receipts_to_direct_tools_and_validates_receip
             f"unexpected receipt fallback: {descriptor}"
         ),
         digest_builder=_digest_builder,
-        rke_renderer=lambda args: "rke payload",
+        rke_materializer=lambda args: {"payload": "rke payload", "source_receipt_hashes": []},
         supply_chain_archive=SimpleNamespace(
             materialize=lambda **_kwargs: {
                 "payload": "supply payload",

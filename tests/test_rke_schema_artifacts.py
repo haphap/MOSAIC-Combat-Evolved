@@ -7,6 +7,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from jsonschema.validators import validator_for
 
 from mosaic.rke import (
     build_schema_validation_report,
@@ -18,8 +19,6 @@ from mosaic.rke.schema_validation import (
     REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS,
     SchemaValidationRecord,
     SchemaValidationReport,
-    SUPPORTED_JSON_SCHEMA_KEYWORDS,
-    iter_json_schema_keywords,
     validate_report_intelligence_semantics,
     validate_rule_pack_schema_artifact,
 )
@@ -124,8 +123,6 @@ REQUIRED_SCHEMA_FILES = {
     "report_intelligence_method_pattern.schema.json",
     "report_intelligence_tool_coverage_match.schema.json",
     "report_intelligence_tool_gap.schema.json",
-    "report_intelligence_data_acquisition_proposal.schema.json",
-    "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
     "report_intelligence_recipe_paper_trading_run.schema.json",
     "report_intelligence_recipe_paper_trading_summary.schema.json",
@@ -213,7 +210,6 @@ PRIVATE_GENERATED_REPORT_INTELLIGENCE_FIXTURE_FILES = (
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "registry/report_intelligence/audit_refresh_history.jsonl",
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
         "registry/report_intelligence/gap_distribution_history.jsonl",
         "registry/report_intelligence/macro_agent_research_priors.jsonl",
         "registry/report_intelligence/method_patterns.jsonl",
@@ -854,11 +850,12 @@ def test_json_schema_artifacts_are_parseable_and_have_required_fields():
         assert schema.get("required"), f"{path} must declare required fields"
 
 
-def test_json_schema_artifacts_only_use_supported_validator_keywords():
+def test_json_schema_artifacts_validate_against_their_declared_draft():
     for path in Path("schemas").glob("*.schema.json"):
         schema = json.loads(path.read_text(encoding="utf-8"))
-        unsupported = set(iter_json_schema_keywords(schema)) - SUPPORTED_JSON_SCHEMA_KEYWORDS
-        assert not unsupported, f"{path} uses unsupported schema keywords: {sorted(unsupported)}"
+        validator = validator_for(schema, default=None)
+        assert validator is not None, f"{path} declares an unknown Schema draft"
+        validator.check_schema(schema)
 
 
 def test_yaml_policy_schema_artifacts_pin_master_plan_defaults():
@@ -5010,16 +5007,15 @@ def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_dr
     tmp_path: Path,
 ):
     registry = _copy_report_intelligence_registry(tmp_path)
-    proposals_path = registry / "data_acquisition_proposals.jsonl"
+    proposals_path = registry / "tool_gaps.jsonl"
     proposals_path.write_text(
         json.dumps(
             {
-                "data_proposal_id": "DAP-MARKET-CAP",
                 "tool_gap_id": "stock_context_market_cap_metadata_missing",
-                "business_priority": "medium",
+                "priority_bucket": "medium",
                 "pit_feasibility_status": "requires_pit_backfill_review",
                 "license_status": "pending_review",
-                "decision_status": "pending_review",
+                "data_decision_status": "pending_review",
             },
             sort_keys=True,
         )
@@ -5036,16 +5032,16 @@ def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_dr
             "target_scope": "report_intelligence.data_acquisition",
             "target_component": "data_acquisition_review_queue",
             "proposed_change": "Keep data acquisition gaps blocked until review.",
-            "trigger_sources": ["data_acquisition_proposals"],
+            "trigger_sources": ["tool_gaps"],
             "evidence_refs": [
                 {
                     "artifact_path": (
                         "registry/report_intelligence/"
-                        "data_acquisition_proposals.jsonl"
+                        "tool_gaps.jsonl"
                     ),
-                    "field": "decision_status",
-                    "proposal_count": 0,
-                    "business_priority_counts": {},
+                    "field": "data_decision_status",
+                    "tool_gap_count": 0,
+                    "priority_bucket_counts": {},
                     "pit_feasibility_status_counts": {},
                     "license_status_counts": {},
                     "market_cap_metadata_gap_count": 0,
@@ -5067,12 +5063,12 @@ def test_prompt_mutation_candidate_contract_rejects_data_acquisition_evidence_dr
 
     assert not record.accepted
     expected_fragments = [
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.proposal_count",
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.business_priority_counts",
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.pit_feasibility_status_counts",
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.license_status_counts",
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.market_cap_metadata_gap_count",
-        "data_acquisition_prioritization_rule.evidence_refs.decision_status.top_tool_gap_ids",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.tool_gap_count",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.priority_bucket_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.pit_feasibility_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.license_status_counts",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.market_cap_metadata_gap_count",
+        "data_acquisition_prioritization_rule.evidence_refs.data_decision_status.top_tool_gap_ids",
     ]
     for fragment in expected_fragments:
         assert any(fragment in item for item in record.failures)
@@ -6192,7 +6188,7 @@ def test_schema_validation_tracks_current_public_registry_without_private_report
     assert all(record.accepted for record in local_records.values())
 
 
-def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
+def test_report_intelligence_tooling_readiness_rejects_retired_proposals(
     tmp_path: Path,
 ):
     registry = tmp_path / "registry/report_intelligence"
@@ -6282,8 +6278,13 @@ def test_report_intelligence_tooling_readiness_requires_reviewable_proposals(
     )
 
     assert not tooling_record.accepted
-    assert any("missing data acquisition proposal" in item for item in tooling_record.failures)
-    assert any("missing tool design proposal" in item for item in tooling_record.failures)
+    assert any("data_acquisition_proposals.jsonl: retired artifact" in item for item in tooling_record.failures)
+    assert any("tool_design_proposals.jsonl: retired artifact" in item for item in tooling_record.failures)
+    for name in ("data_acquisition_proposals.jsonl", "tool_design_proposals.jsonl"):
+        (registry / name).unlink()
+    current = next(record for record in validate_report_intelligence_semantics(tmp_path)
+                   if record.schema_path == tooling_record.schema_path)
+    assert current.accepted
 
 
 def test_report_intelligence_runtime_guard_rejects_production_rollout_flags(
@@ -7508,3 +7509,85 @@ def test_schema_status_cli_reports_malformed_artifact(
     assert output["accepted"] is False
     assert output["failure_count"] == 1
     assert output["records"][0]["failures"] == ["line 1: invalid JSON"]
+
+
+@pytest.mark.parametrize(("fragment", "value", "accepted"), [
+    ({"type": "integer"}, 1.0, True),
+    ({"type": "integer"}, True, False),
+    ({"const": 1}, True, False),
+    ({"enum": [1]}, True, False),
+    ({"enum": [1]}, "PRIVATE_SCHEMA_SENTINEL", False),
+    ({"type": "array", "uniqueItems": True}, [1, 1.0], False),
+    ({"type": "array", "uniqueItems": True}, [1, True], True),
+    ({"type": "string", "format": "date"}, "2026-02-30", False),
+    ({"type": "string", "format": "date"}, "2026-02-28", True),
+    ({"type": "string", "format": "date-time"}, "2026-02-28 10:00:00+00:00", False),
+    ({"type": "string", "format": "date-time"}, "2026-02-28T10:00:00Z", True),
+    ({"if": {"type": "integer"}, "then": {"minimum": 0}, "else": {"const": "none"}}, "bad", False),
+    ({"anyOf": [{"type": "integer"}, {"type": "string"}]}, [], False),
+    ({"oneOf": [{"type": "number"}, {"type": "integer"}]}, 1, False),
+    ({"not": {"type": "integer"}}, 1, False),
+    ({"type": "array", "contains": {"type": "integer"}, "minContains": 1, "maxContains": 1}, [1, 2], False),
+    ({"type": "array", "items": False}, [1], False),
+])
+def test_generic_schema_uses_json_semantics_without_exposing_values(tmp_path, fragment, value, accepted):
+    schema = {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"value": fragment}}
+    (tmp_path / "schema.json").write_text(json.dumps(schema))
+    (tmp_path / "artifact.json").write_text(json.dumps({"value": value}))
+    record = validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
+    assert record.accepted is accepted
+    assert "PRIVATE_SCHEMA_SENTINEL" not in str(record.failures)
+    assert record == validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
+
+
+@pytest.mark.parametrize("reference", ["https://example.invalid/private-schema", "file:///private-schema", "missing.schema.json", "#/$defs/missing"])
+def test_generic_schema_unresolved_references_fail_without_network(tmp_path, monkeypatch, reference):
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *_a, **_kw: pytest.fail("Schema validation must not fetch external data"))
+    (tmp_path / "schema.json").write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": reference}))
+    (tmp_path / "artifact.json").write_text("{}")
+    record = validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
+    assert not record.accepted
+    assert any("schema ref" in failure for failure in record.failures)
+
+
+@pytest.mark.parametrize("schema", [
+    {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "invented"},
+    {"$schema": "https://example.invalid/unknown-draft", "type": "object"},
+    {"$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": "#"},
+])
+def test_generic_schema_invalid_contract_returns_rejection(tmp_path, schema):
+    (tmp_path / "schema.json").write_text(json.dumps(schema))
+    (tmp_path / "artifact.json").write_text("{}")
+    record = validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
+    assert not record.accepted
+
+
+def test_generic_schema_recursive_local_ref_validates_finite_data(tmp_path):
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema", "$ref": "#/$defs/node",
+        "$defs": {"node": {"type": "object", "properties": {"child": {"$ref": "#/$defs/node"}}, "additionalProperties": False}},
+    }
+    (tmp_path / "schema.json").write_text(json.dumps(schema))
+    (tmp_path / "artifact.json").write_text(json.dumps({"child": {"child": {}}}))
+    record = validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
+    assert record.accepted
+
+
+@pytest.mark.parametrize("change", ["format", "extra_command", "invalid_quote"])
+def test_operator_handoff_contract_checks_complete_promotion_command(tmp_path: Path, change: str):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    assert _operator_handoff_record(tmp_path).accepted
+    path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(path.read_text())
+    step = next(step for step in handoff["command_sequence"] if step["step_id"] == "promotion-dry-run")
+    if change == "format":
+        step["command"] = step["command"].replace("--root .", '--root "."').replace(" --gold-input ", "   --gold-input   ")
+    else:
+        step["command"] += " && echo unexpected" if change == "extra_command" else " '"
+    path.write_text(json.dumps(handoff))
+    record = _operator_handoff_record(tmp_path)
+    assert record.accepted is (change == "format"), record.failures
+    if change != "format":
+        assert any("unexpected command or arguments" in item for item in record.failures)

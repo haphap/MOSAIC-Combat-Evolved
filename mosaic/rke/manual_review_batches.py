@@ -2858,6 +2858,20 @@ def build_manual_review_batch_status(
     return status, gold_batch, license_batch
 
 
+def build_full_gold_review_import_template(root: str | Path = ".") -> tuple[Mapping[str, Any], ...]:
+    """Build the blank full-review input without generating workbook artifacts."""
+    root_path = Path(root)
+    _, gold_rows, _, _, _ = _load_review_rows(
+        root_path,
+        GOLD_REVIEW_TEMPLATE_PATH,
+        label="gold-set review",
+    )
+    return tuple(
+        _gold_template_row(row)
+        for row in _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
+    )
+
+
 def write_manual_review_batches(
     root: str | Path = ".",
     *,
@@ -2870,15 +2884,7 @@ def write_manual_review_batches(
         gold_batch_size=gold_batch_size,
         license_batch_size=license_batch_size,
     )
-    _, gold_rows, _, _, _ = _load_review_rows(
-        root_path,
-        GOLD_REVIEW_TEMPLATE_PATH,
-        label="gold-set review",
-    )
-    gold_full = tuple(
-        _gold_template_row(row)
-        for row in _gold_reviewable_pending_rows(gold_rows, max_rows_per_source=0)
-    )
+    gold_full = build_full_gold_review_import_template(root_path)
     gold_result = _write_jsonl(root_path / GOLD_BATCH_IMPORT_TEMPLATE_PATH, gold_batch)
     gold_full_result = _write_jsonl(root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH, gold_full)
     gold_review_input_path = (

@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -48,25 +49,46 @@ def _request() -> dict:
     }
 
 
+@pytest.mark.parametrize(("deferred", "authority_failure"), [
+    (False, None), (True, None), (True, "missing"), (True, "duplicate"),
+])
+@pytest.mark.parametrize(
+    ("agent_id", "stage", "preservation_stage"),
+    [
+        ("alpha_discovery", "alpha_discovery", "alpha_discovery"),
+        ("cro", "cro", "cro_review"),
+        ("autonomous_execution", "autonomous_execution", "execution_feasibility"),
+        ("cio", "cio_proposal", "cio_proposal"),
+        ("cio", "cio_final", "cio_final"),
+    ],
+)
 def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch, agent_id: str, stage: str, preservation_stage: str,
+    deferred: bool, authority_failure: str | None,
 ) -> None:
     now = datetime(2026, 7, 9, 9, 0, tzinfo=timezone.utc)
     frozen = FrozenAdaptiveQueryStore(
         tmp_path / "frozen.sqlite3", clock=lambda: now
     )
     prior_payload = json.dumps({"kind": "rke-prior", "shadow_only": True})
+
+    def materializer(tool_id: str, args: dict) -> dict:
+        return {
+            "payload": prior_payload,
+            "source_receipt_hashes": [canonical_hash({"tool_id": tool_id, "args": args})],
+        }
+
     prepared_query = frozen.prepare(
-        agent_id="cro",
-        stage="cro",
-        preservation_stage="cro_review",
+        agent_id=agent_id,
+        stage=stage,
+        preservation_stage=preservation_stage,
         as_of="2026-07-09",
         authorized_scope=_l4_scope(),
         initial_query_requests=[
             {
                 "tool_id": "get_rke_research_context",
                 "args": {
-                    "agent_id": "cro",
+                    "agent_id": agent_id,
                     "as_of": "2026-07-09",
                     "layer": "decision",
                     "max_items": 3,
@@ -75,42 +97,88 @@ def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
         ],
         query_requests=[],
         preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
-        materializer=lambda tool_id, args: {
-            "payload": prior_payload,
-            "source_receipt_hashes": [
-                canonical_hash({"tool_id": tool_id, "args": args})
-            ],
-        },
+        materializer=materializer,
+        defer_materialization=deferred,
     )
-    monkeypatch.setitem(
-        capability_module.AGENT_TOOL_MATRIX,
-        "cro",
-        ("get_cro_risk_snapshot", "get_rke_research_context"),
-    )
+
+    def finalizer(context: dict) -> dict:
+        return {
+            "agent_id": context["agent_id"],
+            "stage": context["stage"],
+            "as_of": context["as_of"],
+            "status": "READY",
+            "tool_ids": sorted(context["initial_snapshot_tool_ids"]),
+            "build_receipt_hashes": {
+                tool_id: canonical_hash({"tool_id": tool_id})
+                for tool_id in context["initial_snapshot_tool_ids"]
+            },
+            "materialization_attempt_receipt_hash": None,
+            "deferred_tool_ids": sorted(context["deferred_tool_ids"]),
+            "deferred_query_bundle_hash": context["adaptive_query"]["bundle_hash"],
+            "deferred_query_call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+        }
+
     store = AgentToolCapabilityStore(
         tmp_path / "capabilities.sqlite3",
         signing_key=b"test-signing-key-32-bytes-long!!!",
         signing_key_id="test-key-v1",
         clock=lambda: now,
         adaptive_query_store=frozen,
-        adaptive_query_preparer=lambda **_kwargs: prepared_query,
+        adaptive_query_preparer=(
+            ActiveAdaptiveQueryPreparer(
+                sector_relationship_preparer=lambda **_kwargs: pytest.fail("L4 is bound"),
+                bound_runtime_preparer=lambda **_kwargs: prepared_query,
+            )
+            if deferred
+            else lambda **_kwargs: prepared_query
+        ),
+        adaptive_query_materializer=materializer,
+        stage_materialization_finalizer=finalizer if deferred else None,
+        require_knot_v2_audit_authority=deferred,
     )
+    active_calls = Mock(wraps=store._active_knot_audit_authority)
+    monkeypatch.setattr(store, "_active_knot_audit_authority", active_calls)
+    if authority_failure is not None:
+        active_authority = store._active_knot_audit_authority
+
+        def broken_authority(**kwargs):
+            authority = active_authority(**kwargs)
+            contexts = authority["tool_contexts"]
+            target = next(row for row in contexts if row["tool_id"] == "get_rke_research_context")
+            authority["tool_contexts"] = (
+                [row for row in contexts if row is not target]
+                if authority_failure == "missing" else [*contexts, target]
+            )
+            return authority
+
+        monkeypatch.setattr(store, "_active_knot_audit_authority", broken_authority)
+        with pytest.raises(ValueError, match=f"KNOT tool authority {authority_failure}: get_rke_research_context"):
+            store.prepare(
+                {**_request(), "agent_id": agent_id, "stage": stage},
+                materializer=lambda tool_id, **_kwargs: json.dumps({"tool": tool_id, "snapshot": True}),
+            )
+        with sqlite3.connect(store.db_path) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM capabilities").fetchone()[0] == 0
+        return
     result = store.prepare(
-        _request(),
+        {**_request(), "agent_id": agent_id, "stage": stage},
         materializer=lambda tool_id, **_kwargs: json.dumps(
             {"tool": tool_id, "snapshot": True}, sort_keys=True
         ),
     )
     envelope = result["capability"]
+    assert active_calls.call_count == 1
 
     assert store.call_tool(envelope, "get_rke_research_context", {}) == prior_payload
-    with pytest.raises(ValueError, match="does not permit|unavailable"):
+    with pytest.raises(
+        ValueError, match="does not permit|unavailable|not uniquely authorized"
+    ):
         store.call_tool(
             envelope,
             "get_rke_research_context",
             {
-                "agent_id": "cro",
-                "as_of": "2026-07-09",
+                "agent_id": agent_id,
+                "as_of": "2026-07-10",
                 "layer": "decision",
                 "max_items": 3,
             },
@@ -129,8 +197,8 @@ def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
             "run_slot_id": "slot-cro-reissue",
             "run_id": "run-cro-2",
             "node_id": "node-cro-reissue",
-            "agent_id": "cro",
-            "stage": "cro",
+            "agent_id": agent_id,
+            "stage": stage,
             "as_of": "2026-07-09",
             "snapshot_bundle_id": result["bundle"]["snapshot_bundle_id"],
             "snapshot_bundle_hash": result["bundle"]["snapshot_bundle_hash"],

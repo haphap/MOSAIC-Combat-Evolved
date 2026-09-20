@@ -219,20 +219,20 @@ def test_default_capability_store_wires_distinct_private_production_components(
     assert rke_roots == [private_rke_root.resolve()]
     assert forward_reader.sector_archive_store is None
     assert not hasattr(materializer.route_caller, "owners")
-    assert materializer.rke_renderer.__name__ == "_default_rke_renderer"
+    assert materializer.rke_materializer.__name__ == "materialize_rke"
 
     for tool_id in sorted(DIRECT_VENDOR_TOOL_IDS):
         assert materializer.source_evidence_authority(
             tool_id, {}, "payload", {}, ()
         ) == []
-    for tool_id in ("get_industry_policy_digest", "get_rke_research_context"):
+    for tool_id in ("get_industry_policy_digest",):
         assert materializer.source_evidence_authority(
             tool_id, {}, "payload", {}, ()
         ) == [{"owner": tool_id}]
-    assert evidence_owner_calls == [
-        "get_industry_policy_digest",
-        "get_rke_research_context",
-    ]
+    assert evidence_owner_calls == ["get_industry_policy_digest"]
+    assert materializer.rke_materializer.__self__.rke_root == private_rke_root.resolve()
+    with pytest.raises(ValueError, match="no source evidence owner"):
+        materializer.source_evidence_authority("get_rke_research_context", {}, "forged", {}, ())
 
     assert isinstance(
         materializer.supply_chain_archive,

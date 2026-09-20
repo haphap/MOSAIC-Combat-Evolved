@@ -14,6 +14,7 @@ from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedge
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.sector_relationship_queries import (
     SectorRelationshipQueryMaterializer,
+    build_query_descriptor,
 )
 from mosaic.dataflows.sector_relationship_source_evidence import (
     SectorRelationshipSourceEvidenceAuthority,
@@ -108,6 +109,8 @@ def test_etf_disclosure_date_seals_authoritative_vintage_and_registers_exact_rep
     )
     assert upstream is not None
     upstream_payload = upstream.as_dict()
+    assert upstream_payload["schema_version"] == "source_capture_receipt_v1"
+    assert "schema_hash" in upstream_payload["content"]
     assert upstream_payload["identity"]["route_id"] == "tushare.etf_holdings"
     assert upstream_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
     assert upstream_payload["content"]["raw_content_hash"] == descriptor["content_hash"]
@@ -192,8 +195,9 @@ def test_etf_missing_invalid_or_future_disclosure_fails_closed(
         )
 
 
+@pytest.mark.parametrize("source_failure", [None, "missing", "capture_before_knowledge"])
 def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
-    tmp_path: Path,
+    tmp_path: Path, source_failure: str | None,
 ) -> None:
     source_dir = tmp_path / "registry/sources"
     source_dir.mkdir(parents=True)
@@ -224,25 +228,31 @@ def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
         encoding="utf-8",
     )
     authority, store, ledger = _authority(tmp_path)
-    raw = "public-safe-rke-context"
-    descriptor = _descriptor(
-        "get_rke_research_context", raw, pit_mode="DERIVED_FROM_PIT_ARCHIVE"
-    )
-
-    receipts = authority(
-        "get_rke_research_context",
-        {
+    (registry_dir / "forecast_claims.jsonl").write_text(json.dumps({
+        "forecast_claim_id": "FC-1", "report_id": "RPT-1", "source_id": "SRC-TSRR-1",
+        "target": {"target_type": "industry", "target_id": "银行"},
+        "metric_proxy_mapping": ["industry_etf_forward_return"], "direction": "positive",
+    }) + "\n", encoding="utf-8")
+    args = {
             "agent_id": "financials",
             "as_of": AS_OF,
             "layer": "sector",
             "ticker": "",
             "sector": "银行",
             "max_items": 12,
-        },
-        raw,
-        descriptor,
-        ("SRC-TSRR-1",),
-    )
+    }
+    source_path = source_dir / "tushare_research_reports.jsonl"
+    if source_failure == "missing":
+        source_path.unlink()
+    elif source_failure == "capture_before_knowledge":
+        source_path.write_text(source_path.read_text().replace("2026-07-01T03", "2026-06-01T03"))
+    if source_failure is not None:
+        with pytest.raises(DataVendorUnavailable, match="lineage|capture precedes"):
+            authority.materialize_rke(args)
+        return
+    result = authority.materialize_rke(args)
+    descriptor = build_query_descriptor("get_rke_research_context", args, result["payload"])
+    receipts = [store.receipt_by_hash(value) for value in result["source_receipt_hashes"]]
 
     assert receipts[0]["knowledge_available_at"] == "2026-07-01T09:00:00+08:00"
     assert receipts[0]["captured_at"] == "2026-07-01T03:00:00+00:00"
@@ -252,6 +262,8 @@ def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
     )
     assert upstream is not None
     upstream_payload = upstream.as_dict()
+    assert upstream_payload["schema_version"] == "source_capture_receipt_v2"
+    assert "schema_hash" not in upstream_payload["content"]
     assert upstream_payload["identity"]["route_id"] == "private.rke_report_intelligence"
     assert upstream_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
     assert upstream_payload["content"]["raw_content_hash"] == descriptor["content_hash"]
@@ -259,33 +271,18 @@ def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
 
 
 @pytest.mark.parametrize("source_ids", [(), ("SRC-MISSING",)])
-def test_rke_empty_or_unclosed_source_lineage_fails_closed(
-    tmp_path: Path, source_ids: tuple[str, ...]
-) -> None:
+def test_rke_caller_supplied_payload_cannot_be_attested(tmp_path, source_ids):
     authority, _store, _ledger = _authority(tmp_path)
-    raw = "public-safe-rke-context"
     descriptor = _descriptor(
-        "get_rke_research_context", raw, pit_mode="DERIVED_FROM_PIT_ARCHIVE"
+        "get_rke_research_context", "forged payload", pit_mode="DERIVED_FROM_PIT_ARCHIVE"
     )
-    with pytest.raises(DataVendorUnavailable):
-        authority(
-            "get_rke_research_context",
-            {
-                "agent_id": "financials",
-                "as_of": AS_OF,
-                "layer": "sector",
-                "ticker": "",
-                "sector": "银行",
-                "max_items": 12,
-            },
-            raw,
-            descriptor,
-            source_ids,
-        )
+    with pytest.raises(DataVendorUnavailable, match="authority-owned materialization"):
+        authority("get_rke_research_context", {}, "forged payload", descriptor, source_ids)
 
 
-def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
-    tmp_path: Path,
+@pytest.mark.parametrize("optional_contents", [None, "invalid json", "{}\n"])
+def test_rke_true_empty_receipt_requires_exact_materialization_and_basic_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, optional_contents: str | None,
 ) -> None:
     registry_dir = _write_true_empty_rke_inputs(tmp_path)
     args = {
@@ -313,7 +310,34 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     descriptor["request_hash"] = canonical_hash(args)
     authority, store, ledger = _authority(tmp_path)
 
-    receipts = authority("get_rke_research_context", args, raw, descriptor, ())
+    if optional_contents is not None:
+        for filename in (
+            "report_outcome_labels.jsonl", "source_performance_profiles.jsonl",
+            "viewpoint_performance_profiles.jsonl", "analysis_recipes.jsonl",
+            "tool_gaps.jsonl", "weighted_research_contexts.jsonl",
+            "stock_context_snapshots.jsonl", "industry_context_snapshots.jsonl",
+        ):
+            (registry_dir / filename).write_text(optional_contents, encoding="utf-8")
+    hashed_files: list[str] = []
+    read_bytes = Path.read_bytes
+
+    def record_read(path: Path) -> bytes:
+        if path.parent == registry_dir:
+            hashed_files.append(path.name)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", record_read)
+
+    build = Mock(wraps=source_evidence_module.build_rke_agent_research_materialization)
+    monkeypatch.setattr(source_evidence_module, "build_rke_agent_research_materialization", build)
+    hash_bytes = Mock(wraps=source_evidence_module.sha256)
+    monkeypatch.setattr(source_evidence_module, "sha256", hash_bytes)
+    result = authority.materialize_rke(args)
+    assert hash_bytes.call_count == len(RKE_AGENT_RESEARCH_INPUT_FILENAMES)
+    assert result["payload"] == raw
+    assert build.call_count == 1
+    receipts = [store.receipt_by_hash(value) for value in result["source_receipt_hashes"]]
+    assert hashed_files == list(RKE_AGENT_RESEARCH_INPUT_FILENAMES)
 
     assert len(receipts) == 1
     upstream = ledger.source_capture_receipt(
@@ -321,6 +345,9 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     )
     assert upstream is not None
     payload = upstream.as_dict()
+    assert payload["authority"]["parser_version"] == "rke_source_evidence_v3"
+    assert payload["schema_version"] == "source_capture_receipt_v2"
+    assert "schema_hash" not in payload["content"]
     assert payload["content"]["normalized_row_count"] == 0
     assert payload["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
     assert payload["coverage"]["observed_start"] is None
@@ -331,8 +358,9 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     assert store.resolve(descriptor) == receipts
 
 
+@pytest.mark.parametrize("missing_filename", ["forecast_claims.jsonl", "report_metadata.jsonl"])
 def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
-    tmp_path: Path,
+    tmp_path: Path, missing_filename: str,
 ) -> None:
     registry_dir = _write_true_empty_rke_inputs(tmp_path)
     args = {
@@ -343,16 +371,16 @@ def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
         "sector": "银行",
         "max_items": 12,
     }
-    registry_dir.joinpath(RKE_AGENT_RESEARCH_INPUT_FILENAMES[-1]).unlink()
+    registry_dir.joinpath(missing_filename).unlink()
     authority, _store, _ledger = _authority(tmp_path)
     descriptor = _descriptor(
         "get_rke_research_context", "forged payload", pit_mode="DERIVED_FROM_PIT_ARCHIVE"
     )
     with pytest.raises(DataVendorUnavailable, match="RKE empty coverage"):
-        authority("get_rke_research_context", args, "forged payload", descriptor, ())
+        authority.materialize_rke(args)
 
     _write_true_empty_rke_inputs(tmp_path)
-    with pytest.raises(DataVendorUnavailable, match="RKE empty coverage"):
+    with pytest.raises(DataVendorUnavailable, match="authority-owned materialization"):
         authority("get_rke_research_context", args, "forged payload", descriptor, ())
 
 
@@ -380,3 +408,27 @@ def test_materializer_uses_specialized_non_live_evidence_before_generic_authorit
 
     assert len(result["source_receipt_hashes"]) == 1
     assert json.loads(result["payload"])["candidates"][0]["ticker"] == "600000.SH"
+
+
+def test_rke_empty_proof_hashes_exact_input_bytes_despite_later_file_updates(tmp_path, monkeypatch):
+    registry_dir = _write_true_empty_rke_inputs(tmp_path)
+    authority, store, ledger = _authority(tmp_path)
+    build = source_evidence_module.build_rke_agent_research_materialization
+    args = dict(agent_id="financials", layer="sector", sector="银行", as_of=AS_OF, max_items=12)
+
+    def build_then_change_inputs(**kwargs):
+        result = build(**kwargs)
+        (registry_dir / "forecast_claims.jsonl").write_text("invalid subsequent input")
+        return result
+
+    monkeypatch.setattr(source_evidence_module, "build_rke_agent_research_materialization", build_then_change_inputs)
+    result = authority.materialize_rke(args)
+    receipt = store.receipt_by_hash(result["source_receipt_hashes"][0])
+    upstream = ledger.source_capture_receipt(receipt_hash=receipt["upstream_evidence_hashes"][0])
+    expected = canonical_hash({"input_files": [
+        {"name": filename, "content_hash": "sha256:" + source_evidence_module.sha256(b"").hexdigest()}
+        for filename in RKE_AGENT_RESEARCH_INPUT_FILENAMES
+    ]})
+    assert upstream.as_dict()["pit"]["vintage_query"]["archive_hash"] == expected
+    with pytest.raises(DataVendorUnavailable, match="materialization input is unavailable"):
+        authority.materialize_rke(args)

@@ -17,6 +17,7 @@ from mosaic.dataflows.sector_relationship_query_plans import (
     STATEMENT_FREQUENCIES,
     THS_INDUSTRY_FILTERS,
 )
+from mosaic.dataflows.macro_snapshots import MACRO_SNAPSHOT_SCHEMA_VERSION, ROLE_SNAPSHOT_NAMES
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.l3_l4_activation import l3_l4_overlay_stage_for_active
 from mosaic.scorecard.l3_l4_preservation import (
@@ -90,7 +91,6 @@ def _decode_snapshot(
         snapshot.get("candidate_scope_hash") != canonical_hash(candidate_scope)
         or snapshot.get("candidate_universe_hash") != canonical_hash(candidate_body)
         or snapshot.get("constraint_set_hash") != canonical_hash(constraints)
-        or snapshot.get("role_context_hash") != canonical_hash(role_context)
     ):
         raise ValueError("bound runtime snapshot authority hash mismatch")
     expected_candidate_status = "AVAILABLE" if candidates else "EMPTY_CONFIRMED"
@@ -247,6 +247,9 @@ def _l3_plan(
                 "max_items": 12,
             },
         )
+    _append(followups, allowed, "get_rke_research_context", {
+        "agent_id": agent_id, "as_of": as_of, "layer": "superinvestor", "max_items": 12,
+    })
     if "get_industry_policy_digest" in allowed and candidates:
         filters = THS_INDUSTRY_FILTERS.get(candidates[0]["source_sector_agent_id"])
         if not filters or not filters[0].strip():
@@ -361,6 +364,45 @@ def build_bound_runtime_query_plan(
         raise ValueError("allowed_tools must be an array")
     if len(allowed_tools) != len(set(allowed_tools)):
         raise ValueError("allowed tools contain duplicates")
+    if agent_id in ROLE_SNAPSHOT_NAMES:
+        if stage != agent_id or set(allowed_tools) != {"get_rke_research_context"}:
+            raise ValueError("macro research stage/tool scope is invalid")
+        snapshot = json.loads(initial_payloads[ROLE_SNAPSHOT_NAMES[agent_id]])
+        if (
+            snapshot.get("schema_version") != MACRO_SNAPSHOT_SCHEMA_VERSION
+            or snapshot.get("role") != agent_id
+            or snapshot.get("as_of_date") != as_of
+            or snapshot.get("snapshot_hash")
+            != canonical_hash(
+                {
+                    key: value
+                    for key, value in snapshot.items()
+                    if key != "snapshot_hash"
+                }
+            )
+        ):
+            raise ValueError("macro research snapshot identity/hash mismatch")
+        date.fromisoformat(as_of)
+        return {
+            "schema_version": PLAN_CONTRACT_VERSION,
+            "preservation_stage": stage,
+            "authorized_scope": {
+                "as_of": as_of,
+                "source_snapshot_hash": snapshot["snapshot_hash"],
+            },
+            "initial_query_requests": [
+                {
+                    "tool_id": "get_rke_research_context",
+                    "args": {
+                        "agent_id": agent_id,
+                        "as_of": as_of,
+                        "layer": "macro",
+                        "max_items": 3,
+                    },
+                }
+            ],
+            "query_requests": [],
+        }
     snapshot = _decode_snapshot(
         agent_id=agent_id,
         stage=stage,

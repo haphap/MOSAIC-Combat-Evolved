@@ -712,19 +712,15 @@ def write_source_license_reviewed_policy_starter(
     )
 
 
-def build_source_license_policy_import(
+def build_source_license_policy_import_from_payload(
     root: str | Path,
-    policy_path: str | Path,
+    policy_payload: Any,
     *,
+    policy_path: str | Path,
     output_path: str | Path = DEFAULT_LICENSE_POLICY_IMPORT_PATH,
-    dry_run: bool = False,
-    write_report: bool = True,
-) -> SourceLicensePolicyImportReport:
-    """Build a sparse ``apply-license-review`` input from a signed policy file.
-
-    This does not apply the decision. Reviewers must inspect the generated JSONL
-    and pass it to ``apply-license-review`` to update the registry.
-    """
+    dry_run: bool = True,
+) -> tuple[SourceLicensePolicyImportReport, list[dict[str, Any]]]:
+    """Validate a supplied policy and build import rows without writing either."""
     root_path = Path(root)
     resolved_policy_path = Path(policy_path)
     if not resolved_policy_path.is_absolute():
@@ -732,18 +728,6 @@ def build_source_license_policy_import(
     resolved_output_path = Path(output_path)
     if not resolved_output_path.is_absolute():
         resolved_output_path = root_path / resolved_output_path
-
-    try:
-        policy_payload = _load_policy(resolved_policy_path)
-    except json.JSONDecodeError as exc:
-        return _policy_rejection_report(
-            root_path=root_path,
-            resolved_policy_path=resolved_policy_path,
-            resolved_output_path=resolved_output_path,
-            dry_run=dry_run,
-            blocker=f"source-license policy must contain valid JSON: {exc.msg}",
-            write_report=write_report,
-        )
     raw_review_rows, review_rows, review_row_blockers, total_review_rows = _load_review_template_rows(root_path)
     if not isinstance(policy_payload, Mapping):
         report = SourceLicensePolicyImportReport(
@@ -763,9 +747,7 @@ def build_source_license_policy_import(
             filters=SourceLicensePolicyFilters(),
             blockers=tuple(dict.fromkeys(("source-license policy must be object", *review_row_blockers))),
         )
-        if write_report:
-            _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
-        return report
+        return report, []
 
     policy = policy_payload
     filters = _policy_filters(policy)
@@ -841,9 +823,6 @@ def build_source_license_policy_import(
         blockers.append("at least one policy filter is required")
 
     accepted = not blockers
-    if accepted and not dry_run:
-        _write_jsonl(resolved_output_path, output_rows)
-
     report = SourceLicensePolicyImportReport(
         report_id="RKE-SOURCE-LICENSE-POLICY-IMPORT-REPORT-20260606",
         policy_path=str(resolved_policy_path),
@@ -861,6 +840,50 @@ def build_source_license_policy_import(
         filters=filters,
         blockers=tuple(blockers),
     )
+    return report, output_rows if accepted else []
+
+
+def build_source_license_policy_import(
+    root: str | Path,
+    policy_path: str | Path,
+    *,
+    output_path: str | Path = DEFAULT_LICENSE_POLICY_IMPORT_PATH,
+    dry_run: bool = False,
+    write_report: bool = True,
+) -> SourceLicensePolicyImportReport:
+    """Build a sparse ``apply-license-review`` input from a signed policy file.
+
+    This does not apply the decision. Reviewers must inspect the generated JSONL
+    and pass it to ``apply-license-review`` to update the registry.
+    """
+    root_path = Path(root)
+    resolved_policy_path = Path(policy_path)
+    if not resolved_policy_path.is_absolute():
+        resolved_policy_path = root_path / resolved_policy_path
+    resolved_output_path = Path(output_path)
+    if not resolved_output_path.is_absolute():
+        resolved_output_path = root_path / resolved_output_path
+
+    try:
+        policy_payload = _load_policy(resolved_policy_path)
+    except json.JSONDecodeError as exc:
+        return _policy_rejection_report(
+            root_path=root_path,
+            resolved_policy_path=resolved_policy_path,
+            resolved_output_path=resolved_output_path,
+            dry_run=dry_run,
+            blocker=f"source-license policy must contain valid JSON: {exc.msg}",
+            write_report=write_report,
+        )
+    report, output_rows = build_source_license_policy_import_from_payload(
+        root_path,
+        policy_payload,
+        policy_path=policy_path,
+        output_path=output_path,
+        dry_run=dry_run,
+    )
+    if report.accepted and not dry_run:
+        _write_jsonl(resolved_output_path, output_rows)
     if write_report:
         _write_json(root_path / LICENSE_POLICY_IMPORT_REPORT_PATH, asdict(report))
     return report

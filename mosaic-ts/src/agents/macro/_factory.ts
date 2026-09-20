@@ -76,6 +76,7 @@ import {
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
+import { AGENT_INITIAL_TOOL_MATRIX } from "../tool_contract.js";
 import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } from "../types.js";
 import {
   buildMacroComponentCompositionAudit,
@@ -225,7 +226,7 @@ export function buildLayerOneAgentNode(
               })
             : null;
           const tools = preparedCapability
-            ? await pickBridgeTools(deps.api, spec.requiredTools, {
+            ? await pickBridgeTools(deps.api, AGENT_INITIAL_TOOL_MATRIX[spec.agentId], {
                 capability: preparedCapability.capability,
               })
             : [buildFakeRoleSnapshotTool(spec.agentId, spec.requiredTools[0], state.as_of_date)];
@@ -248,7 +249,7 @@ export function buildLayerOneAgentNode(
               tools: tools as StructuredToolInterface[],
               systemMessage: systemPrompt,
               initialMessages: [new HumanMessage(evidenceUserContext)],
-              initialToolCalls: [{ name: spec.requiredTools[0], args: {} }],
+              initialToolCalls: tools.map((tool) => ({ name: tool.name, args: {} })),
               allowModelToolCalls: false,
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
               ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),

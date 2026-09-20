@@ -460,6 +460,11 @@ def build_sector_relationship_query_plan(
                 },
             )
 
+    _append(requests, allowed, "get_rke_research_context", {
+        "agent_id": agent_id, "as_of": as_of,
+        "layer": "relationship" if agent_id == "relationship_mapper" else "sector",
+        "ticker": "", "sector": "", "max_items": RKE_MAX_ITEMS,
+    })
     for ticker, sector in rke_pairs:
         _append(
             requests,

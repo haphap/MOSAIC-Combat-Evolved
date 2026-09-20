@@ -18,7 +18,7 @@ stack.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from hashlib import sha256
 from json import dumps
 from math import isfinite
@@ -817,14 +817,12 @@ class ConfidenceComponents:
     regime_match_confidence: float
 
     def __post_init__(self) -> None:
-        for name in (
-            "data_confidence",
-            "research_weight_confidence",
-            "empirical_validation_confidence",
-            "method_tool_confidence",
-            "regime_match_confidence",
-        ):
-            _ensure_unit_interval(float(getattr(self, name)), name)
+        for component in fields(self):
+            _ensure_unit_interval(float(getattr(self, component.name)), component.name)
+
+
+CONFIDENCE_COMPONENTS = tuple(component.name for component in fields(ConfidenceComponents))
+RESEARCH_ONLY_CONFIDENCE_CAP = 0.50
 
 
 @dataclass(frozen=True)
@@ -860,8 +858,8 @@ def compute_confidence_v1(
     reasons: list[str] = []
     data_confidence = components.data_confidence
     if not current_data_confirmed:
-        data_confidence = min(data_confidence, 0.50)
-        cap = min(cap, 0.50)
+        data_confidence = min(data_confidence, RESEARCH_ONLY_CONFIDENCE_CAP)
+        cap = min(cap, RESEARCH_ONLY_CONFIDENCE_CAP)
         reasons.append("current data confirmation absent")
     pre_cap = min(
         data_confidence,

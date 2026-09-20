@@ -3,6 +3,7 @@
   "title": "RKE Report Intelligence Recipe Paper Trading Summary",
   "type": "object",
   "required": [
+    "tool_gap_contract",
     "summary_id",
     "run_id",
     "as_of_datetime",
@@ -20,7 +21,6 @@
     "validation_candidate_recipe_count",
     "tool_only_blocked_recipe_count",
     "tool_only_blocked_tool_gap_count",
-    "tool_only_blocked_tool_proposal_count",
     "tool_implementation_queue",
     "profile_paper_trade_disagreement_count",
     "recipe_instability_gap_count",
@@ -31,6 +31,7 @@
     "policy"
   ],
   "properties": {
+    "tool_gap_contract": {"const": "tool_gap_facts_v1"},
     "summary_id": {"type": "string", "minLength": 1},
     "run_id": {"type": "string", "minLength": 1},
     "as_of_datetime": {"type": "string", "minLength": 1},
@@ -142,8 +143,6 @@
     "tool_only_blocked_recipe_ids": {"type": "array", "items": {"type": "string"}},
     "tool_only_blocked_tool_gap_count": {"type": "integer", "minimum": 0},
     "tool_only_blocked_tool_gap_ids": {"type": "array", "items": {"type": "string"}},
-    "tool_only_blocked_tool_proposal_count": {"type": "integer", "minimum": 0},
-    "tool_only_blocked_tool_proposal_ids": {"type": "array", "items": {"type": "string"}},
     "tool_implementation_queue": {
       "type": "object",
       "required": [
@@ -152,7 +151,6 @@
         "blocked_recipe_count",
         "requested_tool_count",
         "tool_gap_count",
-        "tool_proposal_count",
         "unlinked_tool_gap_registry_count",
         "unlinked_requested_tool_count"
       ],
@@ -165,8 +163,6 @@
         "requested_tools": {"type": "array", "items": {"type": "string"}},
         "tool_gap_count": {"type": "integer", "minimum": 0},
         "tool_gap_ids": {"type": "array", "items": {"type": "string"}},
-        "tool_proposal_count": {"type": "integer", "minimum": 0},
-        "tool_proposal_ids": {"type": "array", "items": {"type": "string"}},
         "unlinked_tool_gap_registry_count": {"type": "integer", "minimum": 0},
         "unlinked_requested_tool_count": {"type": "integer", "minimum": 0}
       },

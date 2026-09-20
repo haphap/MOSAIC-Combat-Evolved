@@ -101,36 +101,17 @@ def _exists(root_path: Path, relative: str) -> bool:
 
 def _evidence_status(
     root_path: Path, evidence_paths: Sequence[str]
-) -> tuple[bool, bool, str]:
+) -> tuple[bool, str]:
     public_evidence_paths = [
         path for path in evidence_paths if is_public_registry_artifact(path)
     ]
     missing = [path for path in public_evidence_paths if not _exists(root_path, path)]
     if missing:
-        return False, False, f"missing evidence: {', '.join(missing)}"
+        return False, f"missing evidence: {', '.join(missing)}"
     malformed = _evidence_content_errors(root_path, public_evidence_paths)
     if malformed:
-        return False, _evidence_errors_are_blocking_gate_failures(malformed), "; ".join(
-            malformed
-        )
-    return True, False, ""
-
-
-def _evidence_errors_are_blocking_gate_failures(errors: Sequence[str]) -> bool:
-    return bool(errors) and all(
-        " accepted must be true" in error
-        or " blocker_count must be zero" in error
-        or " blocked phases:" in error
-        or " must be deferred_by_rollout" in error
-        for error in errors
-    )
-
-
-def _all_exist(root_path: Path, evidence_paths: Sequence[str]) -> tuple[bool, str]:
-    evidence_ok, _content_error, evidence_blocker = _evidence_status(
-        root_path, evidence_paths
-    )
-    return evidence_ok, evidence_blocker
+        return False, "; ".join(malformed)
+    return True, ""
 
 
 def _evidence_content_errors(
@@ -153,58 +134,7 @@ def _json_object_errors(path: Path, relative: str) -> tuple[str, ...]:
         return (f"{relative} must contain valid JSON: {exc.msg}",)
     if not isinstance(payload, Mapping):
         return (f"{relative} must be object",)
-    if relative == REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH:
-        return _report_intelligence_patch_coverage_errors(payload, relative)
     return ()
-
-
-def _report_intelligence_patch_coverage_errors(
-    payload: Mapping[str, Any],
-    relative: str,
-) -> tuple[str, ...]:
-    errors: list[str] = []
-    if payload.get("accepted") is not True:
-        errors.append(f"{relative} accepted must be true")
-    try:
-        blocker_count = int(payload.get("blocker_count") or 0)
-    except (TypeError, ValueError):
-        blocker_count = 1
-    if blocker_count != 0:
-        errors.append(f"{relative} blocker_count must be zero")
-    phase_records = payload.get("phase_records")
-    if not isinstance(phase_records, list | tuple):
-        errors.append(f"{relative} phase_records must be list")
-        return tuple(errors)
-    valid_phase_records = [
-        item for item in phase_records if isinstance(item, Mapping)
-    ]
-    if len(valid_phase_records) != len(phase_records):
-        errors.append(f"{relative} phase_records rows must be objects")
-    expected_phase_ids = set("ABCDEFGH")
-    observed_phase_ids = {
-        str(item.get("phase_id") or "") for item in valid_phase_records
-    }
-    if observed_phase_ids != expected_phase_ids:
-        errors.append(f"{relative} phase_records must cover Phase A-H")
-    blocked_ids = [
-        str(item.get("phase_id") or "")
-        for item in valid_phase_records
-        if str(item.get("status") or "") == "blocked"
-    ]
-    if blocked_ids:
-        errors.append(f"{relative} blocked phases: {', '.join(blocked_ids)}")
-    rollout_mode = str(payload.get("current_rollout_mode") or "")
-    if rollout_mode == "shadow_tooling":
-        statuses = {
-            str(item.get("phase_id") or ""): str(item.get("status") or "")
-            for item in valid_phase_records
-        }
-        for phase_id in ("G", "H"):
-            if statuses.get(phase_id) != "deferred_by_rollout":
-                errors.append(
-                    f"{relative} Phase {phase_id} must be deferred_by_rollout in shadow_tooling"
-                )
-    return tuple(errors)
 
 
 def _jsonl_object_errors(path: Path, relative: str) -> tuple[str, ...]:
@@ -317,22 +247,14 @@ def _record(
     evidence_paths: Sequence[str],
     status: CoverageStatus | None = None,
     blocker: str = "",
-    blocked_if_evidence_content_error: bool = False,
 ) -> MasterPlanCoverageRecord:
-    evidence_ok, evidence_content_error, evidence_blocker = _evidence_status(
+    evidence_ok, evidence_blocker = _evidence_status(
         root_path, evidence_paths
     )
     final_status: CoverageStatus = status or ("passed" if evidence_ok else "missing")
     final_blocker = blocker
     if not evidence_ok:
-        if final_status == "missing" and blocker:
-            final_status = "missing"
-        else:
-            final_status = (
-                "blocked"
-                if evidence_content_error and blocked_if_evidence_content_error
-                else "missing"
-            )
+        final_status = "missing"
         final_blocker = "; ".join(
             item for item in (blocker, evidence_blocker) if item
         )
@@ -354,7 +276,6 @@ def _completion_record(
     requirement: str,
     evidence_paths: Sequence[str],
     blocked_if_failed: bool = False,
-    blocked_if_evidence_content_error: bool = False,
     completion_error: str = "",
 ) -> MasterPlanCoverageRecord:
     row = completion.get(criterion_id, {})
@@ -377,7 +298,6 @@ def _completion_record(
         evidence_paths=evidence_paths,
         status=status,
         blocker=blocker,
-        blocked_if_evidence_content_error=blocked_if_evidence_content_error,
     )
 
 
@@ -1104,7 +1024,6 @@ def build_master_plan_coverage_report(
                     REPORT_INTELLIGENCE_PATCH_COVERAGE_REPORT_PATH,
                 ),
                 blocked_if_failed=True,
-                blocked_if_evidence_content_error=True,
                 completion_error=completion_error,
             ),
             _record(

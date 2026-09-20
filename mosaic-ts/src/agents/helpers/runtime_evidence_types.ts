@@ -2,11 +2,27 @@ import type { ToolCallAudit } from "../../bridge/types.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 
+export const RKE_CALL_OUTCOMES = [
+  "available",
+  "normal_empty",
+  "blocked",
+  "authorization_rejected",
+  "request_rejected",
+  "execution_failed",
+  "budget_not_executed",
+  "missing_tool",
+  "returned_unclassified",
+] as const;
+export type RkeCallOutcome = (typeof RKE_CALL_OUTCOMES)[number];
+
 export interface ToolStatus {
   name: string;
   call_id?: string;
   agent_invocation_id?: string;
   called: boolean;
+  /** Reached the registered bridge/local invocation; does not prove backend execution or authorization. */
+  dispatched?: boolean;
+  rke_outcome?: RkeCallOutcome;
   failed: boolean;
   missing: boolean;
   fallback: boolean;
