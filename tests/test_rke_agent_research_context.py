@@ -12,6 +12,7 @@ from mosaic.rke.agent_research_context import (
     SCHEMA_VERSION,
     assert_public_safe_context,
     build_rke_agent_research_materialization,
+    build_rke_agent_research_context,
     build_rke_agent_research_context_from_rows,
     format_rke_agent_research_context,
     normalize_agent_id,
@@ -81,6 +82,20 @@ def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_
         as_of_date="2026-07-09",
         max_items=12,
     )
+
+    for filename in (
+        "report_outcome_labels.jsonl", "source_performance_profiles.jsonl",
+        "viewpoint_performance_profiles.jsonl", "analysis_recipes.jsonl",
+        "tool_gaps.jsonl", "weighted_research_contexts.jsonl",
+        "stock_context_snapshots.jsonl", "industry_context_snapshots.jsonl",
+    ):
+        (registry_dir / filename).write_text("not valid json", encoding="utf-8")
+    query = dict(
+        root=tmp_path, agent_id="financials", layer="sector", sector="银行",
+        as_of_date="2026-07-09", max_items=12,
+    )
+    assert build_rke_agent_research_materialization(**query) == materialization
+    assert build_rke_agent_research_context(**query) == materialization["context"]
 
     assert set(materialization) == {"context", "source_ids"}
     assert materialization["source_ids"] == ("SRC-SELECTED",)
@@ -1381,354 +1396,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
     assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
     assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
     assert "production_signal_allowed=false" in output
-    assert (
-        "- Outcome labels: count=1; pending_share=0.0; "
-        "types=macro_series_directional; latest_completed_exit=2026-06-20"
-    ) in output
-
-
-def test_rke_runtime_context_preflight_blocks_bad_outcome_summary():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "expected_direction": "positive",
-                    "horizon_bucket": "medium",
-                    "regime_bucket": "fx_usd_cycle",
-                    "regime_types": ["fx_usd_cycle"],
-                    "source_performance_bucket": "supportive_evidence",
-                    "viewpoint_performance_bucket": "supportive_evidence",
-                    "agent_target_specificity_bucket": "direct_agent_target_match",
-                    "performance_context_match": "source_and_viewpoint_profile_match",
-                    "combined_research_prior_weight": 1.2,
-                    "freshness_bucket": "historical_completed_exit",
-                    "latest_completed_exit_date": "2026-06-20",
-                    "statistical_reliability_bucket": "limited",
-                    "n_effective": 3.0,
-                    "known_failure_mode_tags": [],
-                    "recipe_ids": [],
-                    "tool_gap_ids": [],
-                    "outcome_label_summary": {
-                        "label_count": 2,
-                        "directional_hit_count": 1,
-                        "pending_label_count": 1,
-                        "pending_share": 0.5,
-                        "label_types": ["macro_series_directional"],
-                        "latest_completed_exit_date": "2026-06-28",
-                    },
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "outcome_label_summary_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_future_outcome_freshness():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "freshness_bucket": "completed_exit_after_prior_as_of",
-                    "latest_completed_exit_date": "2026-06-28",
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                }
-            ],
-            "summary": {"truncated_item_count": 0, "current_data_required": True},
-        }
-    )
-
-    assert "item_freshness_bucket_invalid" in str(error.value)
-    assert "item_latest_exit_date_after_as_of" in str(error.value)
-    assert "item_freshness_bucket_mismatch" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_invalid_exit_dates():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "freshness_bucket": "historical_completed_exit",
-                    "latest_completed_exit_date": "2026-00-01",
-                    "outcome_label_summary": {
-                        "label_count": 1,
-                        "directional_hit_count": 1,
-                        "pending_label_count": 0,
-                        "pending_share": 0.0,
-                        "label_types": ["macro_series_directional"],
-                        "latest_completed_exit_date": "2026-00-01",
-                    },
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                }
-            ],
-            "summary": {"truncated_item_count": 0, "current_data_required": True},
-        }
-    )
-
-    assert "item_latest_exit_date_invalid" in str(error.value)
-    assert "outcome_label_summary_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_empty_outcome_latest_exit():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "freshness_bucket": "historical_completed_exit",
-                    "latest_completed_exit_date": "2026-06-20",
-                    "outcome_label_summary": {
-                        "label_count": 0,
-                        "directional_hit_count": 0,
-                        "pending_label_count": 0,
-                        "pending_share": 0.0,
-                        "label_types": [],
-                        "latest_completed_exit_date": "2026-06-20",
-                    },
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                }
-            ],
-            "summary": {"truncated_item_count": 0, "current_data_required": True},
-        }
-    )
-
-    assert "outcome_label_summary_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_bad_snapshot_audit():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "superinvestor.munger",
-            "requested_agent_id": "munger",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "superinvestor",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                },
-                {
-                    "redacted_claim_id": "FCRED-2",
-                    "retrieval_rank": 2,
-                    "priority_bucket": "medium",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "context_snapshot_status": "missing",
-                    "context_snapshot_missing_reasons": [
-                        "stock_context_snapshot_missing"
-                    ],
-                },
-            ],
-            "summary": {"truncated_item_count": 0, "current_data_required": True},
-        }
-    )
-
-    assert "context_snapshot_status_invalid" in str(error.value)
-    assert "context_snapshot_missing_reason_not_ranked" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_missing_ranking_metadata():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "expected_direction": "positive",
-                    "horizon_bucket": "medium",
-                    "regime_bucket": "fx_usd_cycle",
-                    "regime_types": ["fx_usd_cycle"],
-                    "source_performance_bucket": "supportive_evidence",
-                    "viewpoint_performance_bucket": "supportive_evidence",
-                    "statistical_reliability_bucket": "limited",
-                    "n_effective": 3.0,
-                    "known_failure_mode_tags": [],
-                    "recipe_ids": [],
-                    "tool_gap_ids": [],
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "item_ranking_metadata_missing" in str(error.value)
-    assert "item_latest_exit_date_missing" in str(error.value)
-    assert "item_combined_weight_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_bad_performance_buckets():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "expected_direction": "positive",
-                    "horizon_bucket": "medium",
-                    "regime_bucket": "fx_usd_cycle",
-                    "regime_types": ["fx_usd_cycle"],
-                    "source_performance_bucket": "buy_now",
-                    "viewpoint_performance_bucket": "sell_now",
-                    "statistical_reliability_bucket": "certain",
-                    "agent_target_specificity_bucket": "manual_override",
-                    "performance_context_match": "perfect_match",
-                    "freshness_bucket": "pending_no_completed_exit",
-                    "combined_research_prior_weight": float("inf"),
-                    "latest_completed_exit_date": "",
-                    "n_effective": float("nan"),
-                    "known_failure_mode_tags": [],
-                    "recipe_ids": [],
-                    "tool_gap_ids": [],
-                    "outcome_label_summary": {
-                        "label_count": 1,
-                        "directional_hit_count": 0,
-                        "pending_label_count": 1,
-                        "pending_share": float("nan"),
-                        "label_types": ["macro_series_directional"],
-                        "latest_completed_exit_date": "",
-                    },
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "item_performance_bucket_invalid" in str(error.value)
-    assert "item_reliability_bucket_invalid" in str(error.value)
-    assert "item_ranking_metadata_invalid" in str(error.value)
-    assert "item_combined_weight_invalid" in str(error.value)
-    assert "item_n_effective_invalid" in str(error.value)
-    assert "outcome_label_summary_invalid" in str(error.value)
+    assert "Outcome labels:" not in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
@@ -1782,153 +1450,6 @@ def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
 
     assert "item_context_metadata_missing" in str(error.value)
     assert "item_regime_types_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_bad_recipe_tool_gap_ids():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "statistical_reliability_bucket": "limited",
-                    "n_effective": 3.0,
-                    "known_failure_mode_tags": [],
-                    "recipe_ids": [""],
-                    "tool_gap_ids": [3],
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "item_recipe_tool_gap_ids_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_bad_failure_tags():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "statistical_reliability_bucket": "limited",
-                    "n_effective": 3.0,
-                    "known_failure_mode_tags": ["", 3],
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "known_failure_mode_tags_missing" in str(error.value)
-
-
-def test_rke_runtime_context_preflight_blocks_missing_reliability_metadata():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "item_reliability_bucket_missing" in str(error.value)
-    assert "item_n_effective_invalid" in str(error.value)
 
 
 def test_rke_runtime_context_preflight_blocks_missing_item_target_metadata():
@@ -2164,34 +1685,6 @@ def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
     assert "schema_version_mismatch" in str(error.value)
 
 
-def test_rke_runtime_context_preflight_blocks_forbidden_field_count():
-    error = pytest.raises(
-        DataVendorUnavailable,
-        rke_research_tools.format_rke_runtime_context,
-        {
-            "agent_id": "macro.dollar",
-            "schema_version": SCHEMA_VERSION,
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            "context_items": [],
-            "summary": {
-                "item_count": 0,
-                "matched_item_count": 0,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": 0,
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v1",
-            },
-        }
-    )
-
-    assert "forbidden_field_count_invalid" in str(error.value)
-
-
 def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
     error = pytest.raises(
         DataVendorUnavailable,
@@ -2420,3 +1913,42 @@ def test_normalize_agent_id_accepts_ts_and_rke_forms():
             "context_items": [],
         }
     )
+
+
+@pytest.mark.parametrize("optional_value", [None, {"invalid": True}])
+def test_rke_runtime_context_omits_optional_research_metadata(optional_value):
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="financials", layer="sector", as_of_date="2026-07-09",
+        forecasts=[{
+            "forecast_claim_id": "FC-BASIC",
+            "target": {"target_type": "industry", "target_id": "银行"},
+            "metric_proxy_mapping": ["industry_etf_forward_return"],
+            "direction": "positive",
+        }],
+    )
+    assert len(context["context_items"]) == 1
+    for item in context["context_items"]:
+        for field in (
+            "statistical_reliability_bucket", "source_performance_bucket",
+            "viewpoint_performance_bucket", "performance_context_match",
+            "agent_target_specificity_bucket", "freshness_bucket",
+            "latest_completed_exit_date", "combined_research_prior_weight",
+            "n_effective", "known_failure_mode_tags", "recipe_ids", "tool_gap_ids",
+            "context_snapshot_status", "context_snapshot_missing_reasons",
+            "outcome_label_summary",
+        ):
+            if optional_value is None:
+                item.pop(field, None)
+            else:
+                item[field] = optional_value
+    context["summary"].pop("forbidden_field_count")
+    output = rke_research_tools.format_rke_runtime_context(context)
+    assert "### Prior FCRED-" in output
+    assert "Expected direction: positive" in output
+    assert "Current data required: true" in output
+    for label in ("Performance:", "Outcome labels:", "Recipes:", "Tool gaps:", "Failure tags:"):
+        assert label not in output
+
+    context["context_items"][0]["outcome_label_summary"] = {"claim_text": "private prose"}
+    with pytest.raises(DataVendorUnavailable, match="public_safe_context_violation"):
+        rke_research_tools.format_rke_runtime_context(context)

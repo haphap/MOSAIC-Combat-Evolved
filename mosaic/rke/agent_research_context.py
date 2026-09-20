@@ -19,7 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .private_registries import resolve_report_intelligence_registry_dir
 
-SCHEMA_VERSION = "rke_agent_research_context_v1"
+SCHEMA_VERSION = "rke_agent_research_context_v2"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
@@ -28,14 +28,6 @@ DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
     "forecast_claims.jsonl",
     "report_metadata.jsonl",
-    "report_outcome_labels.jsonl",
-    "source_performance_profiles.jsonl",
-    "viewpoint_performance_profiles.jsonl",
-    "analysis_recipes.jsonl",
-    "tool_gaps.jsonl",
-    "weighted_research_contexts.jsonl",
-    "stock_context_snapshots.jsonl",
-    "industry_context_snapshots.jsonl",
 )
 RATING_BUCKETS = frozenset(
     {
@@ -52,20 +44,6 @@ RELIABILITY_BUCKETS = frozenset(
         "low_effective_n",
         "limited",
         "insufficient_data",
-    }
-)
-AGENT_TARGET_SPECIFICITY_BUCKETS = frozenset(
-    {
-        "direct_agent_target_match",
-        "explicit_agent_candidate",
-        "strong_role_style_match",
-        "sector_target_match",
-        "metric_or_regime_match",
-        "role_style_match",
-        "decision_stock_prior",
-        "decision_industry_prior",
-        "decision_macro_prior",
-        "generic_agent_match",
     }
 )
 PERFORMANCE_CONTEXT_BUCKETS = frozenset(
@@ -507,7 +485,7 @@ def build_rke_agent_research_context(
     sector: str = "",
     max_items: int = 12,
 ) -> dict[str, Any]:
-    """Build a public-safe context from local private RKE artifacts."""
+    """Build a public-safe basic context from private claims and report metadata."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
     rows = _load_rke_agent_research_rows(registry_path)
@@ -523,29 +501,11 @@ def build_rke_agent_research_context(
 
 
 def _load_rke_agent_research_rows(registry_path: Path) -> dict[str, list[dict[str, Any]]]:
-    rows = {
+    # Basic queries do not depend on offline scores, outcomes, recipes or snapshots.
+    return {
         "forecasts": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[0]),
         "metadata": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[1]),
-        "outcomes": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[2]),
-        "source_profiles": _read_jsonl(
-            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[3]
-        ),
-        "viewpoint_profiles": _read_jsonl(
-            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[4]
-        ),
-        "recipes": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[5]),
-        "tool_gaps": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[6]),
-        "weighted_research_contexts": _read_jsonl(
-            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[7]
-        ),
-        "stock_context_snapshots": _read_jsonl(
-            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[8]
-        ),
-        "industry_context_snapshots": _read_jsonl(
-            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[9]
-        ),
     }
-    return rows
 
 
 def build_rke_agent_research_materialization(
@@ -718,7 +678,6 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
         return "\n".join(lines)
     for item in items:
         item_map = _ensure_mapping(item)
-        outcome_summary = _ensure_mapping(item_map.get("outcome_label_summary"))
         lines.extend(
             [
                 "",
@@ -740,33 +699,6 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                 (
                     f"- Regime: {item_map.get('regime_bucket')} "
                     f"({', '.join(_ensure_str_list(item_map.get('regime_types'))) or 'none'})"
-                ),
-                (
-                    "- Performance: "
-                    f"source={item_map.get('source_performance_bucket')}, "
-                    f"viewpoint={item_map.get('viewpoint_performance_bucket')}, "
-                    f"reliability={item_map.get('statistical_reliability_bucket')}, "
-                    f"n_effective={item_map.get('n_effective')}"
-                ),
-                (
-                    "- Failure tags: "
-                    f"{', '.join(_ensure_str_list(item_map.get('known_failure_mode_tags'))) or 'none'}"
-                ),
-                (
-                    "- Outcome labels: "
-                    f"count={outcome_summary.get('label_count')}; "
-                    f"pending_share={outcome_summary.get('pending_share')}; "
-                    "types="
-                    f"{', '.join(_ensure_str_list(outcome_summary.get('label_types'))) or 'none'}; "
-                    f"latest_completed_exit={outcome_summary.get('latest_completed_exit_date') or 'none'}"
-                ),
-                (
-                    "- Recipes: "
-                    f"{', '.join(_ensure_str_list(item_map.get('recipe_ids'))) or 'none'}"
-                ),
-                (
-                    "- Tool gaps: "
-                    f"{', '.join(_ensure_str_list(item_map.get('tool_gap_ids'))) or 'none'}"
                 ),
                 (
                     "- Current data required: "

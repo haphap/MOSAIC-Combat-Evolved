@@ -26,7 +26,7 @@ describe("RKE footprint capture helpers", () => {
       rkeAgentResearchContext: async () => {
         called.push("rke.agentResearchContext");
         return {
-          schema_version: "rke_agent_research_context_v1",
+          schema_version: "rke_agent_research_context_v2",
           agent_id: "macro.us_financial_conditions",
           layer: "macro",
           as_of_date: "2026-06-18",
@@ -80,7 +80,7 @@ describe("RKE footprint capture helpers", () => {
   it("marks current data confirmed only when the producer opts in", async () => {
     const api = {
       rkeAgentResearchContext: async () => ({
-        schema_version: "rke_agent_research_context_v1",
+        schema_version: "rke_agent_research_context_v2",
         agent_id: "macro.us_financial_conditions",
         layer: "macro",
         as_of_date: "2026-06-18",
