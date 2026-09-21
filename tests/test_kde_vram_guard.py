@@ -58,7 +58,7 @@ def _run_guard(
             "--termination-grace-seconds",
             "0.1",
             "--gpu-query-timeout-seconds",
-            "0.05",
+            "1",
             "--nvidia-smi",
             str(nvidia_smi),
             "--skip-kde-log-check",
@@ -70,7 +70,7 @@ def _run_guard(
         check=False,
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=10,
     )
 
 
@@ -84,7 +84,15 @@ def test_parse_gpu_sample_requires_exactly_one_gpu() -> None:
 
 
 def test_guard_records_minimum_headroom_for_successful_command(tmp_path: Path) -> None:
-    result = _run_guard(tmp_path, [2048, 1800, 1536], "import time; time.sleep(0.12)")
+    # Wait for the CSV header and three recorded samples, not runner startup speed.
+    child_code = (
+        "from pathlib import Path\n"
+        "import time\n"
+        f"output = Path({str(tmp_path / 'samples.csv')!r})\n"
+        "while len(output.read_text().splitlines()) < 4:\n"
+        "    time.sleep(0.01)\n"
+    )
+    result = _run_guard(tmp_path, [2048, 1800, 1536], child_code)
 
     assert result.returncode == 0, result.stderr
     summary = json.loads((tmp_path / "samples.csv.summary.json").read_text())
@@ -114,7 +122,9 @@ def test_guard_stops_command_when_gpu_query_hangs(tmp_path: Path) -> None:
     assert result.returncode == guard.GUARD_EXIT_CODE
     summary = json.loads((tmp_path / "samples.csv.summary.json").read_text())
     assert summary["violation"] == "gpu_sampling_failed"
-    assert summary["error"] == "nvidia-smi timed out after 0.05 seconds"
+    assert summary["error"] == "nvidia-smi timed out after 1 seconds"
+    assert summary["sample_count"] == 1
+    assert summary["child_returncode"] is not None
     assert summary["child_returncode"] != 0
 
 
