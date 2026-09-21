@@ -1368,7 +1368,7 @@ def _build_forward_archive(root: Path, as_of: date) -> Path:
     )
     rke_rows = [*rke_stock_rows, *direction_rows]
     report_metadata = []
-    forecast_claims = []
+    footprints = []
     for index, row in enumerate(rke_rows, start=1):
         report_id = f"structured-smoke-rke-report-{index}"
         is_stock = row["report_type"] == "个股研报"
@@ -1385,31 +1385,38 @@ def _build_forward_archive(root: Path, as_of: date) -> Path:
                     if rke_agent_id
                     else []
                 ),
+                "license_class": "operator_approved_internal_research_use",
+                "derived_claim_storage_allowed": True,
                 "publish_datetime": f"{publish_date}T09:00:00+08:00",
                 "accessible_datetime": f"{publish_date}T09:00:00+08:00",
             }
         )
-        forecast_claims.append(
+        footprints.append(
             {
-                "forecast_claim_id": f"structured-smoke-rke-claim-{index}",
+                "footprint_id": f"structured-smoke-rke-case-{index}",
                 "report_id": report_id,
                 "source_id": row["source_id"],
                 "target": {
                     "target_type": "stock" if is_stock else "industry",
                     "target_id": row["ts_code"] if is_stock else row["industry"],
                 },
-                "metric_proxy_mapping": (
-                    ["cashflow", "quality", "stock_forward_return"]
-                    if is_stock
-                    else ["industry_etf_forward_return"]
-                ),
-                "direction": "positive",
+                "source_span_ids": [f"synthetic-span-{index}"],
+                "research_case": {
+                    "question": f"Can demand recovery improve margins in {row['industry']}?",
+                    "historical_regime": "Synthetic inventory liquidation and stable funding costs",
+                    "reasoning_chain": [
+                        "Demand recovery reduces excess inventory",
+                        "Higher utilization spreads fixed costs across more output",
+                    ],
+                    "assumptions": ["Selling prices remain stable"],
+                    "invalidation_conditions": ["Demand weakens or input costs rise"],
+                    "conclusion": "Margins may recover if demand and pricing assumptions hold",
+                },
             }
         )
     rke_root = archive_root / "registry/report_intelligence"
     _write_jsonl(rke_root / "report_metadata.jsonl", report_metadata)
-    _write_jsonl(rke_root / "forecast_claims.jsonl", forecast_claims)
-    _write_jsonl(rke_root / "analytical_footprints.jsonl", [])
+    _write_jsonl(rke_root / "analytical_footprints.jsonl", footprints)
     return archive_root
 
 

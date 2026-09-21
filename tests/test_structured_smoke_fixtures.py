@@ -1201,8 +1201,13 @@ def test_structured_smoke_bundle_seals_sector_adaptive_archive(
         sector=security["direction_id"],
         max_items=12,
     )
-    assert rke_materialization["source_ids"] == ()
-    assert rke_materialization["context"]["summary"]["item_count"] == 0
+    assert rke_materialization["source_ids"]
+    assert rke_materialization["context"]["summary"]["item_count"] > 0
+    assert all(
+        item.get("research_case")
+        for item in rke_materialization["context"]["context_items"]
+    )
+    assert not (Path(bindings["MOSAIC_REGISTRY_DIR"]) / "forecast_claims.jsonl").exists()
 
     supply_chain_archive = OfficialSupplyChainDisclosureArchive(
         Path(bindings["MOSAIC_SUPPLY_CHAIN_ARCHIVE_PATH"]), create=False
