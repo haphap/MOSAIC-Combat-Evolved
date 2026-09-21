@@ -20,7 +20,7 @@ from .research_case import normalize_research_case
 SCHEMA_VERSION = "rke_agent_research_context_v4"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
-RANKING_POLICY_ID = "rke_agent_research_context_rank_v5"
+RANKING_POLICY_ID = "rke_agent_research_context_rank_v6"
 FORBIDDEN_FIELD_POLICY = "internal_research_cases_only_raw_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
@@ -65,7 +65,10 @@ DECISION_AGENTS = frozenset(
 MACRO_RESEARCH_KEYWORDS: Mapping[str, tuple[str, ...]] = {
     "macro.central_bank": ("央行", "货币政策", "政策利率", "流动性", "monetary", "liquidity"),
     "macro.china": ("中国", "内需", "信用", "社融", "房地产", "财政", "china"),
-    "macro.commodities": ("供需", "库存", "成本", "产能", "商品", "commodity", "inventory"),
+    "macro.commodities": (
+        "大宗商品", "原油", "石油", "天然气", "煤炭", "铜", "黄金", "玉米", "豆粕",
+        "能源", "金属", "农产品", "commodity", "crude", "gold", "copper",
+    ),
     "macro.eu_economy": ("欧洲", "欧元区", "就业", "消费", "通胀", "europe", "euro area"),
     "macro.euro_area_financial_conditions": ("欧央行", "欧元", "融资", "利差", "流动性", "ecb"),
     "macro.institutional_flow": ("资金流", "配置", "赎回", "资管", "机构", "fund flow"),
@@ -997,13 +1000,19 @@ def _case_relevance_score(case: Mapping[str, Any], agent_id: str, sector: str) -
     keywords.update(SECTOR_AGENT_KEYWORDS.get(agent_id, ()))
     keywords.update(SUPERINVESTOR_STYLE_KEYWORDS.get(agent_id, ()))
     role_score = sum(_sector_keyword_matches(keyword, text) for keyword in keywords)
+    question_score = sum(
+        _sector_keyword_matches(keyword, str(case.get("question") or ""))
+        for keyword in keywords
+    )
+    # A matching research question outranks any number of incidental body matches.
+    role_score += (len(keywords) + 1) * question_score
     if sector:
         direction_agent = _sector_agent_for_direction(sector)
         focus_keywords = SECTOR_DIRECTION_KEYWORDS.get(
             (direction_agent.removeprefix("sector."), sector), (sector,),
         )
         if any(_sector_keyword_matches(keyword, text) for keyword in focus_keywords):
-            return len(keywords) + 1 + role_score
+            return (len(keywords) + 1) ** 2 + role_score
     return role_score
 
 

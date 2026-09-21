@@ -902,3 +902,29 @@ def test_standalone_forecasts_cannot_be_retrieved_or_formatted(tmp_path):
     context = build_rke_agent_research_context(root=tmp_path, agent_id="cio", as_of_date="2026-01-01")
     assert context["context_items"] == []
     assert "No matching RKE context" in format_rke_agent_research_context(context)
+
+
+def test_case_question_outranks_incidental_keywords_without_hiding_transfer_cases():
+    cases = [
+        {"question": "原油期限结构如何反映供需变化？",
+         "historical_regime": "远月贴水", "reasoning_chain": ["比较库存与近远月价差"]},
+        {"question": "数据平台如何提升零售运营效率？",
+         "historical_regime": "库存管理升级",
+         "reasoning_chain": ["分析供需、库存、成本、产能、商品", "服务能源、金属、原油和黄金客户"]},
+        {"question": "黄金上涨需要哪些条件？", "reasoning_chain": ["比较金融条件与避险需求"]},
+    ]
+    metadata = [{"report_id": str(i), "source_id": str(i),
+                 "publish_datetime": "2025-01-01",
+                 "license_class": "operator_approved_internal_research_use",
+                 "derived_claim_storage_allowed": True} for i in range(len(cases))]
+    footprints = [{"footprint_id": str(i), "report_id": str(i), "source_id": str(i),
+                   "source_span_ids": ["synthetic"], "research_case": case}
+                  for i, case in enumerate(cases)]
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="macro.commodities", as_of_date="2025-07-11",
+        metadata=metadata, footprints=footprints,
+    )
+    questions = [item["research_case"]["question"] for item in context["context_items"]]
+    assert set(questions[:2]) == {cases[0]["question"], cases[2]["question"]}
+    assert context["summary"]["matched_item_count"] == 3
+    assert questions[-1] == cases[1]["question"]

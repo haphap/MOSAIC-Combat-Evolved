@@ -300,6 +300,26 @@ describe("macro responsibility and prompt contract", () => {
     }
   });
 
+  it("adds case transfer instructions to the runtime contract used with private prompts", () => {
+    for (const agent of MACRO_AGENT_IDS) {
+      const zh = renderMacroRuntimeContract(agent, "zh");
+      const en = renderMacroRuntimeContract(agent, "en");
+      expect(zh).toContain("get_rke_research_context");
+      expect(zh).toContain("采用或弃用");
+      expect(zh).toContain("历史与当前 regime");
+      expect(zh).toContain("缺失条件");
+      expect(zh).toContain("不得反写为原案例方法");
+      expect(zh).toContain("逐字引用一句短依据");
+      expect(en).toContain("never as methods used by the source case");
+      expect(zh).toContain("借鉴研究方法，不等于沿用历史结论");
+      expect(en).toContain("Adopt the research method, not the historical conclusion");
+      expect(en).toContain("adopt or reject");
+      expect(en).toContain("quote one short passage verbatim");
+      expect(en).toContain("historical and current regimes");
+      expect(en).toContain("not current claim evidence");
+    }
+  });
+
   it("does not expose research knobs, old fields, or a cross-agent stance", () => {
     for (const agent of MACRO_AGENT_IDS) {
       const body = `${renderMacroPromptBody(agent, "zh", "cohort_default")}\n${renderMacroPromptBody(
