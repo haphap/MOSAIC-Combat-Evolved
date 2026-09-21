@@ -14,6 +14,10 @@ import type {
   MacroPersistenceHorizon,
 } from "../types.js";
 
+// Both existing series are parsed from revenue figures by _parse_mof.
+export const CHINA_FISCAL_METRIC_NOTE =
+  "cn_fiscal_general_budget_yoy and cn_fiscal_government_fund_yoy are revenue growth rates only; they do not measure expenditure or the fiscal balance.";
+
 export interface MacroRoleContract {
   agentId: MacroAgentId;
   mode: "DIRECT" | "COMPONENTS";
@@ -777,8 +781,9 @@ export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" |
       prohibited,
       "",
       `运行时收集 ${role.requiredTools[0]} 当前快照和 get_rke_research_context 历史研究案例；当前事实只能来自本次快照。`,
-      "分析阶段在角色 JSON 之前用短段文字逐例标明案例 ID、采用或弃用及理由。每例固定分为“原文依据、原方法、历史/当前条件、决定”四项：从该案例问题或推理链逐字引用一句短依据，只在原方法项概括它直接支持的方法；决定项仅写采用、部分采用或弃用及理由，不另行改写方法。找不到依据就不归给该案例。当前快照新增的指标不得混入原方法或决定项；全部案例之后单列本次扩展，不得反写为原案例方法。采用指借鉴研究方法，不等于沿用历史结论：先说明可借鉴的因果机制或比较方法，再比较历史与当前 regime，指出快照已支持的条件、缺失条件及反证。缺少当前验证不等于研究方法无效，应保留方法和待查变量，将结论标为未确认；无关方法可以弃用。未知条件保持未知，不得强行迁移。",
-      "案例比较保留在分析文本中；历史案例不是当前 claim 的证据，不得把旧预测或历史数值当成当前事实。随后按运行时 schema 提交角色判断，不新增输出字段。",
+      "在角色 JSON 之前分开写历史案例和本次推演。历史案例部分逐例只列案例 ID，以及最相关的1至2个完整推理步骤和一句历史 regime 的原文引文，不改写、不补全，不整段复述案例。此处不使用当前快照。案例字段名不是逻辑证明：支持结论的条件不能当作反证。",
+      "本次推演部分标明所参考的案例 ID，再用当前快照比较上述机制：哪些条件得到支持、哪些缺失、哪些观察可能推翻推演。新增指标、方法和替代变量属于本次推演，不反写成原案例方法。允许没有可直接迁移的案例，不要求逐例作采用决定。缺失条件保持未知；当前事实的指标和时间范围不得扩大，缺少可比前值不能推断指标的边际变化，缺少时间序列不能推断稳定或低波动。历史结论不是当前 claim 的证据。随后按运行时 schema 提交角色判断，不新增输出字段。",
+      ...(agent === "china" ? [CHINA_FISCAL_METRIC_NOTE] : []),
       `固定提交模式：${role.mode}。`,
       ...(components.length > 0 ? [`组件必须恰好为：${components.join("、")}。`] : []),
       "以运行时 JSON Schema 为唯一输出合同；不得输出 accepted lineage、权重或数据质量字段。",
@@ -793,8 +798,9 @@ export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" |
     prohibited,
     "",
     `The runtime supplies the current ${role.requiredTools[0]} snapshot and get_rke_research_context historical cases; current facts must come only from this snapshot.`,
-    "In the analysis, before the role JSON, write a short paragraph per case ID explaining whether to adopt or reject it. For each case use four labeled items: source quote, original method, historical/current conditions, decision. First quote one short passage verbatim from the case question or reasoning chain; describe only its directly supported method in the original-method item. In the decision item only adopt or reject (including partial adoption) with reasons, without rewriting the method. Do not attribute unsupported methods to the case. Put additional current-snapshot metrics or methods in a separate extensions paragraph after all cases, never in original-method or decision items and never as methods used by the source case. Adopt the research method, not the historical conclusion: first state the reusable causal mechanism or comparison method, then compare historical and current regimes, supported conditions, missing conditions, and counterevidence. Missing current verification does not invalidate a method: retain the method and variables to check while marking conclusions unconfirmed. Reject irrelevant methods, keep unknowns unknown, and never force a transfer.",
-    "Keep case comparisons in the analysis text. Historical cases are not current claim evidence; never present old forecasts or historical values as current facts. Then submit the role judgment using the runtime schema without adding output fields.",
+    "Before the role JSON, separate historical cases from the current analysis. For each historical case, list only its ID, verbatim quotes of the one or two most relevant complete reasoning steps, and one historical-regime sentence. Do not paraphrase, fill gaps, or reproduce the whole case. Do not use the current snapshot in this section. Field names do not prove logical relationships: a condition supporting a conclusion is not counterevidence.",
+    "In the current analysis, name the case IDs being referenced and compare those mechanisms with the current snapshot: which conditions are supported, which are missing, and which observations could invalidate the current inference. New metrics, methods and proxy variables belong to the current analysis; never attribute them to the original case. No directly transferable case is a valid result; do not force an adoption decision for every case. Keep missing conditions unknown. Do not broaden the metric or time scope of current facts; do not infer change in a metric without comparable previous values, or stability or low volatility without a time series. Historical conclusions are not current claim evidence. Then submit the role judgment using the runtime schema without adding output fields.",
+    ...(agent === "china" ? [CHINA_FISCAL_METRIC_NOTE] : []),
     `Fixed submission mode: ${role.mode}.`,
     ...(components.length > 0 ? [`Components must be exactly: ${components.join(", ")}.`] : []),
     "Treat the runtime JSON Schema as the only output contract; do not emit accepted lineage, weights, or data-quality fields.",

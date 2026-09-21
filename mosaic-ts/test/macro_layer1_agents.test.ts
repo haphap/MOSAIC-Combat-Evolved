@@ -305,18 +305,18 @@ describe("macro responsibility and prompt contract", () => {
       const zh = renderMacroRuntimeContract(agent, "zh");
       const en = renderMacroRuntimeContract(agent, "en");
       expect(zh).toContain("get_rke_research_context");
-      expect(zh).toContain("采用或弃用");
-      expect(zh).toContain("历史与当前 regime");
-      expect(zh).toContain("缺失条件");
-      expect(zh).toContain("不得反写为原案例方法");
-      expect(zh).toContain("逐字引用一句短依据");
-      expect(en).toContain("never as methods used by the source case");
-      expect(zh).toContain("借鉴研究方法，不等于沿用历史结论");
-      expect(en).toContain("Adopt the research method, not the historical conclusion");
-      expect(en).toContain("adopt or reject");
-      expect(en).toContain("quote one short passage verbatim");
-      expect(en).toContain("historical and current regimes");
+      expect(zh).toContain("历史案例和本次推演");
+      expect(zh).toContain("此处不使用当前快照");
+      expect(zh).toContain("不改写、不补全");
+      expect(zh).toContain("不反写成原案例方法");
+      expect(zh).toContain("不要求逐例作采用决定");
+      expect(en).toContain("separate historical cases from the current analysis");
+      expect(en).toContain("never attribute them to the original case");
       expect(en).toContain("not current claim evidence");
+      if (agent === "china") {
+        expect(zh).toContain("are revenue growth rates only");
+        expect(en).toContain("are revenue growth rates only");
+      }
     }
   });
 
@@ -340,6 +340,9 @@ describe("macro responsibility and prompt contract", () => {
       "canonical structured_conclusion.subject is fixed to that component id",
     );
     expect(components).toContain("snapshot_echo to null");
+    expect(components).toContain("not current facts");
+    expect(components).toContain("are revenue growth rates only");
+    expect(components).toContain("preserve the exact metric and time scope");
     expect(components).toContain("omits optional numeric echoes");
     expect(components).toContain("Never rewrite digits as Chinese or English number words");
     expect(components).toContain("standalone narrative");
