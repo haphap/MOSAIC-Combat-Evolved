@@ -80,7 +80,6 @@ import { AGENT_INITIAL_TOOL_MATRIX } from "../tool_contract.js";
 import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } from "../types.js";
 import {
   buildMacroComponentCompositionAudit,
-  CHINA_FISCAL_METRIC_NOTE,
   composeAcceptedMacroTransmission,
   MACRO_CONTEXT_SOURCE_ROLES,
   MACRO_ROLE_CONTRACTS,
@@ -655,12 +654,7 @@ export function renderDefaultMacroExtractorSystem(
     `The user message contains a free-form analysis written by a previous LLM call, the ` +
     `frozen role snapshot JSON, and the runtime evidence catalog. Read them carefully and ` +
     `populate every field in the runtime-supplied JSON Schema. Only emit values supported ` +
-    `by those inputs; never invent numbers. Historical case quotes, methods and conclusions ` +
-    `are context only, not current facts. Current facts must come from the frozen snapshot: ` +
-    `preserve the exact metric and time scope, and never fill missing observations from the ` +
-    `historical analysis. Do not infer change in a metric without comparable previous values, ` +
-    `or stability or low volatility without a time series. ` +
-    (spec.agentId === "china" ? `${CHINA_FISCAL_METRIC_NOTE} ` : "") +
+    `by those inputs; never invent numbers. ` +
     `${MACRO_PROVIDER_INSTRUCTION} ${componentOwnership}` +
     `When the snapshot contains context_only_projection, treat it only as deterministic ` +
     `background: it cannot add or satisfy a required component, replace financial evidence, ` +

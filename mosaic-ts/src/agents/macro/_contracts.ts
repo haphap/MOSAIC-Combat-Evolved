@@ -14,10 +14,6 @@ import type {
   MacroPersistenceHorizon,
 } from "../types.js";
 
-// Both existing series are parsed from revenue figures by _parse_mof.
-export const CHINA_FISCAL_METRIC_NOTE =
-  "cn_fiscal_general_budget_yoy and cn_fiscal_government_fund_yoy are revenue growth rates only; they do not measure expenditure or the fiscal balance.";
-
 export interface MacroRoleContract {
   agentId: MacroAgentId;
   mode: "DIRECT" | "COMPONENTS";
@@ -780,10 +776,7 @@ export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" |
       "禁区：",
       prohibited,
       "",
-      `运行时收集 ${role.requiredTools[0]} 当前快照和 get_rke_research_context 历史研究案例；当前事实只能来自本次快照。`,
-      "在角色 JSON 之前分开写历史案例和本次推演。历史案例部分逐例只列案例 ID，以及最相关的1至2个完整推理步骤和一句历史 regime 的原文引文，不改写、不补全，不整段复述案例。此处不使用当前快照。案例字段名不是逻辑证明：支持结论的条件不能当作反证。",
-      "本次推演部分标明所参考的案例 ID，再用当前快照比较上述机制：哪些条件得到支持、哪些缺失、哪些观察可能推翻推演。新增指标、方法和替代变量属于本次推演，不反写成原案例方法。允许没有可直接迁移的案例，不要求逐例作采用决定。缺失条件保持未知；当前事实的指标和时间范围不得扩大，缺少可比前值不能推断指标的边际变化，缺少时间序列不能推断稳定或低波动。历史结论不是当前 claim 的证据。随后按运行时 schema 提交角色判断，不新增输出字段。",
-      ...(agent === "china" ? [CHINA_FISCAL_METRIC_NOTE] : []),
+      `只允许调用：${role.requiredTools[0]}。`,
       `固定提交模式：${role.mode}。`,
       ...(components.length > 0 ? [`组件必须恰好为：${components.join("、")}。`] : []),
       "以运行时 JSON Schema 为唯一输出合同；不得输出 accepted lineage、权重或数据质量字段。",
@@ -797,10 +790,7 @@ export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" |
     "Prohibited:",
     prohibited,
     "",
-    `The runtime supplies the current ${role.requiredTools[0]} snapshot and get_rke_research_context historical cases; current facts must come only from this snapshot.`,
-    "Before the role JSON, separate historical cases from the current analysis. For each historical case, list only its ID, verbatim quotes of the one or two most relevant complete reasoning steps, and one historical-regime sentence. Do not paraphrase, fill gaps, or reproduce the whole case. Do not use the current snapshot in this section. Field names do not prove logical relationships: a condition supporting a conclusion is not counterevidence.",
-    "In the current analysis, name the case IDs being referenced and compare those mechanisms with the current snapshot: which conditions are supported, which are missing, and which observations could invalidate the current inference. New metrics, methods and proxy variables belong to the current analysis; never attribute them to the original case. No directly transferable case is a valid result; do not force an adoption decision for every case. Keep missing conditions unknown. Do not broaden the metric or time scope of current facts; do not infer change in a metric without comparable previous values, or stability or low volatility without a time series. Historical conclusions are not current claim evidence. Then submit the role judgment using the runtime schema without adding output fields.",
-    ...(agent === "china" ? [CHINA_FISCAL_METRIC_NOTE] : []),
+    `Only call: ${role.requiredTools[0]}.`,
     `Fixed submission mode: ${role.mode}.`,
     ...(components.length > 0 ? [`Components must be exactly: ${components.join(", ")}.`] : []),
     "Treat the runtime JSON Schema as the only output contract; do not emit accepted lineage, weights, or data-quality fields.",
