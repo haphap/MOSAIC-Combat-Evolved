@@ -48,6 +48,8 @@ def _runtime_preflight(context: Mapping[str, Any]) -> list[str]:
         failures.append("context_items_malformed")
     elif len(items) != len(item_values):
         failures.append("context_item_not_object")
+    if any(not item.get("research_case") for item in items):
+        failures.append("research_case_missing")
     agent_id = str(context.get("agent_id") or "")
     layer = str(context.get("layer") or "")
     if not agent_id:

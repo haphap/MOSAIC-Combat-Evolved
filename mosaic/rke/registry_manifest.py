@@ -38,6 +38,7 @@ REPORT_INTELLIGENCE_LOCAL_ARTIFACT_FILES = frozenset(
 
 # Retain privacy recognition after retiring these active export contracts.
 RETIRED_PRIVATE_REGISTRY_FILES = frozenset({
+    "registry/report_intelligence/forecast_claims.jsonl",
     "registry/report_intelligence/data_acquisition_proposals.jsonl",
     "registry/report_intelligence/tool_design_proposals.jsonl",
 })

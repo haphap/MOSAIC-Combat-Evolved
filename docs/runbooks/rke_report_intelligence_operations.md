@@ -8,12 +8,13 @@ Markdown excerpts here.
 ## Refresh Scope (Current Code)
 
 `report-intelligence` defaults to `--derived-scope basic`. Extraction writes the
-six extracted fact JSONL files, processing status and the existing report
+five extracted fact JSONL files, processing status and the existing report
 fingerprint manifest used to skip duplicate extractions. Basic `--refresh-derived-only`
-normalizes forecast mappings from existing metadata/claims and writes only
-`forecast_claims.jsonl`; it does not require footprint, metric, method or gap files
-and leaves the extraction fingerprint manifest unchanged.
-PIT normalization can use the existing local macro calendar and source mappings.
+checks metadata without rewriting extraction outputs or their fingerprint manifest.
+Standalone `forecast_claims.jsonl` is retired: it is not extracted, merged, indexed,
+or read by Agent queries. Forecast numbers and conclusions remain inside complete
+research cases. The old `export-macro-agent-priors` CLI and `rke.macroAgentPriors`
+bridge export are removed; use `export-rke-agent-context` / `rke.agentResearchContext`.
 
 Basic runs do not rebuild outcome labels, profiles, recipes, proposal templates,
 confidence monitors, prompt mutations or readiness reports.
@@ -44,10 +45,27 @@ operation logs below describe historical full runs; their outcome/profile/gate
 counts are not expected from the new basic default. To reproduce those offline
 outputs, add `--derived-scope full` to the corresponding extraction/refresh command.
 
+## Retire Standalone Forecasts
+
+Validate and hydrate the last published snapshot with the pre-upgrade CLI first,
+using the existing pull/preflight/hydrate sequence below. Preserve unexported work.
+After switching to the case-only code, delete only
+`registry/report_intelligence/forecast_claims.jsonl` from staging, then run the full
+derived refresh above to clear its ledger, outcome, profile and old prior rows.
+Confirm that research cases, source metadata, processing status and manual review
+imports retain their original content and status. No extraction or LLM call is needed.
+Export the complete snapshot with the existing exporter: it removes the retired
+forecast file from the destination and rebuilds case-only fingerprints/manifests.
+Commit, run preflight, and push in the existing publication order. An old manifest
+that still lists forecasts must be upgraded before a new consumer can pass preflight.
+If batch archives are also being retired, delete their `forecast_claims.jsonl` files
+in the same private commit; do not alter cases or review decisions or rewrite Git history.
+Dated forecast extraction/backtest records below describe the retired pipeline,
+not instructions to regenerate standalone predictions.
+
 ## Research Case Migration
 
-The case-based reader uses `analytical_footprints.jsonl` alongside metadata and
-legacy forecast context. `research_case` keeps the question, source-described
+The case-based reader uses `analytical_footprints.jsonl` alongside metadata. `research_case` keeps the question, source-described
 historical regime, ordered reasoning, evidence, assumptions, invalidation
 conditions and conclusion together. Empty fields remain unknown. Case summaries
 are private derived text for approved internal research; they are not public-safe
@@ -65,8 +83,8 @@ argument takes priority over generic role keywords. Other cases remain available
 for transfer, and an untargeted request ranks by role relevance. Source metadata
 does not substitute for argument content. Unrelated cases can remain in the
 candidate set, so a larger match count is not proof of relevance. Source diversity
-breaks ties within a relevance level. Existing forecast rows retain their target
-and role filters. No extracted tags or private case records need to be rewritten.
+breaks ties within a relevance level. Standalone forecasts are never fallback results. No extracted tags or private case
+records need to be rewritten.
 
 Sector and Superinvestor frozen plans include a broad RKE request alongside their
 targeted requests. Active Superinvestor argument schemas allow omitted ticker and
@@ -180,8 +198,8 @@ Extraction requests only `analytical_footprints` entries with a topic and comple
 research case. Forecasts stay in each case's conclusion. Omit the unused top-level
 and indicator/pattern/agent arrays from the model's output shape; existing
 normalizers already handle their absence. Requiring those empty arrays caused
-observed object/array closure errors in 35B output. Existing forecast records remain
-readable, but new cases do not create separate forecast outcome-label inputs. Basic
+observed object/array closure errors in 35B output. Legacy forecast files are ignored by extraction refresh and Agent queries; new
+cases do not create separate forecast outcome-label inputs. Basic
 metadata identifies the source; abstract-derived labels and inferred report/rating
 context are excluded
 from the model request. Original Markdown is preserved in full within its chunk.
@@ -1701,7 +1719,7 @@ Operational guidance:
 - Ask the service owner to stop this container before MinerU VLM conversion or
   any other GPU-heavy local workload if memory pressure appears.
 
-## Forecast Claim Pre-Review Rule
+## Historical Forecast Claim Pre-Review Rule (Retired)
 
 Before manual gold-set review, keep the source-grounded `claim_text` unchanged
 and add a separate `analyst_claim` for the financial-practitioner rewrite. The
@@ -1733,7 +1751,7 @@ that report-level horizon into descriptive current-state claims, incomplete
 fragments, unsupported investment suggestions, or claims without an evaluable
 target/proxy.
 
-## Macro Claim Backtest Rule
+## Historical Macro Claim Backtest Rule (Retired)
 
 Macro research claim performance is evaluated with non-LLM PIT outcome labels,
 not during extraction or manual review. Keep `claim_regime_trace` as background
@@ -1774,7 +1792,7 @@ The outcome row must record `outcome_label_source`, `target_series_id`,
 `performance_value_basis`. Missing PIT data should produce a pending or blocked
 label reason, not a guessed result.
 
-## Claim Horizon Extraction Rule
+## Historical Claim Horizon Extraction Rule (Retired)
 
 Extract claim horizon from the full report context before judging a single claim
 as horizon-missing. Use this order:
@@ -1806,7 +1824,7 @@ These contexts may disambiguate generic claim language during extraction and
 manual review, but they must not validate claim correctness or override a
 claim's source-grounded target, direction, or benchmark.
 
-## Dual-Model Claim Expansion Rule
+## Historical Dual-Model Claim Expansion Rule (Retired)
 
 For gold-set sample expansion, run the same cached-Markdown source batch through
 both the local qwen/vLLM extractor and Mimo, then compare public-safe aggregate

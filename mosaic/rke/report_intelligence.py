@@ -26,7 +26,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
@@ -36,9 +36,6 @@ from pathlib import Path
 from typing import Any, Callable, Container, Literal, Sequence
 
 from .claim_text_filters import (
-    is_boilerplate_risk_warning_text,
-    is_disclaimer_text,
-    is_heading_or_toc_text,
     is_non_research_claim_text,
 )
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
@@ -239,13 +236,11 @@ REPORT_INTELLIGENCE_PRIVATE_OUTPUT_PATHS = frozenset(
 REPORT_INTELLIGENCE_REQUIRED_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
     {
         "registry/report_intelligence/analytical_footprints.jsonl",
-        "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/report_metadata.jsonl",
     }
 )
 REPORT_INTELLIGENCE_NONEMPTY_PRIVATE_DERIVED_INPUT_PATHS = frozenset(
     {
-        "registry/report_intelligence/forecast_claims.jsonl",
         "registry/report_intelligence/report_metadata.jsonl",
     }
 )
@@ -284,151 +279,6 @@ DEFAULT_MINERU_ENV = {
     "MINERU_TABLE_ENABLE": "true",
     "MINERU_FORMULA_ENABLE": "true",
 }
-FORECAST_CLAIM_MECHANISM_TERMS = (
-    "预计",
-    "预期",
-    "有望",
-    "未来",
-    "后续",
-    "长期",
-    "短期",
-    "中期",
-    "看好",
-    "维持",
-    "建议",
-    "上调",
-    "下调",
-    "优于",
-    "跑赢",
-    "跑输",
-    "超配",
-    "低配",
-    "增持",
-    "减持",
-    "驱动",
-    "推动",
-    "带动",
-    "导致",
-    "受益",
-    "压制",
-    "制约",
-    "改善",
-    "修复",
-    "恶化",
-    "承压",
-    "风险",
-    "压力",
-    "催化",
-    "拐点",
-    "弹性",
-    "传导",
-    "供需",
-    "库存",
-    "产能",
-    "景气",
-    "景气周期",
-    "行业周期",
-    "价格周期",
-    "煤价周期",
-    "格局",
-    "regime",
-    "outperform",
-    "underperform",
-)
-FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS = (
-    "涨跌幅",
-    "区间涨幅",
-    "区间跌幅",
-    "年初至",
-    "当前",
-    "截至",
-    "分别为",
-    "最高",
-    "其次",
-    "排在",
-    "排名",
-    "环比",
-    "同比",
-    "ROE",
-    "毛利率",
-    "净利率",
-    "资产负债率",
-    "研发比例",
-    "存量规模",
-    "价格为",
-    "涨跌不一",
-    "规模",
-)
-FORECAST_CLAIM_FINANCE_IMPACT_TERMS = (
-    "需求增长",
-    "订单",
-    "销量",
-    "出货",
-    "装机",
-    "营收",
-    "营业收入",
-    "收入增长",
-    "利润",
-    "盈利",
-    "业绩",
-    "净利润",
-    "毛利率",
-    "净利率",
-    "估值修复",
-    "估值溢价",
-    "估值提升",
-    "估值重估",
-    "价值重估",
-    "目标价",
-    "股价",
-    "股票",
-    "指数",
-    "行业指数",
-    "市场指数",
-    "沪深300",
-    "高beta",
-    "高 beta",
-    "风格",
-    "收益率",
-    "超额收益",
-    "相对收益",
-    "跑赢",
-    "跑输",
-    "优于",
-    "占优",
-    "评级",
-    "看多",
-    "看空",
-    "看好",
-    "买入",
-    "增持",
-    "减持",
-    "超配",
-    "低配",
-    "景气",
-    "景气度",
-    "景气周期",
-    "行业周期",
-    "价格周期",
-    "煤价周期",
-    "价格中枢",
-    "流动性",
-    "信用扩张",
-    "信用收缩",
-    "信用利差",
-    "信用风险",
-    "信用周期",
-    "信贷",
-    "社融",
-    "revenue",
-    "profit",
-    "earnings",
-    "margin",
-    "valuation",
-    "return",
-    "outperform",
-    "underperform",
-)
 MINERU_VLM_HF_CACHE_DIRNAME = "models--opendatalab--MinerU2.5-Pro-2605-1.2B"
 MINERU_BACKENDS = (
     "hybrid-auto-engine",
@@ -555,7 +405,6 @@ FORECAST_GOLD_REVIEW_MAX_METRICS: Mapping[str, float] = {
 }
 MAX_STORED_CLAIM_TEXT_CHARS = 512
 MAX_REASONABLE_FORECAST_HORIZON_DAYS = 3653
-MAX_FORECAST_CLAIMS_PER_REPORT = 5
 ANALYTICAL_FOOTPRINT_REVIEW_BOOLEAN_FIELDS = (
     "footprint_correct",
     "source_span_supports_footprint",
@@ -3113,10 +2962,6 @@ STOCK_SUBJECT_REFERENCE_RE = re.compile(
     r"(?P<code>\d{6})(?:\.[A-Za-z]{2})?[）)]"
 )
 
-GENERIC_STOCK_COMPANY_REFERENCE_RE = re.compile(
-    r"(?P<prefix>^|[，。；：、,;:\s（(])"
-    r"(?P<term>标的公司|本公司|该公司|公司)"
-)
 
 
 def _clean_stock_subject_name(value: Any) -> str:
@@ -3192,80 +3037,6 @@ def _stock_subject_from_metadata(row: Mapping[str, Any]) -> dict[str, str]:
         "subject_label": subject_label,
     }
     return {key: value for key, value in subject.items() if value}
-
-
-def _target_with_metadata_stock_subject(
-    target: Mapping[str, Any],
-    stock_subject: Mapping[str, str],
-) -> tuple[dict[str, Any], bool]:
-    updated = dict(target)
-    if not stock_subject:
-        return updated, False
-    target_type = str(updated.get("target_type") or "").strip().lower()
-    subject_ts_code = str(stock_subject.get("target_id") or "")
-    target_ts_code = str(updated.get("target_id") or "").strip().upper()
-    changed = False
-    if target_type != "stock":
-        if not subject_ts_code or target_ts_code != subject_ts_code:
-            return updated, False
-        updated["target_type"] = "stock"
-        target_type = "stock"
-        changed = True
-    if subject_ts_code and target_ts_code and subject_ts_code != target_ts_code:
-        return updated, False
-
-    if updated.get("target_type") != target_type:
-        updated["target_type"] = target_type
-        changed = True
-    if subject_ts_code and updated.get("target_id") != subject_ts_code:
-        updated["target_id"] = subject_ts_code
-        changed = True
-    subject_name = str(stock_subject.get("target_name") or "")
-    if subject_name and not str(updated.get("target_name") or "").strip():
-        updated["target_name"] = subject_name
-        changed = True
-    return updated, changed
-
-
-def _text_mentions_stock_subject(text: str, stock_subject: Mapping[str, str]) -> bool:
-    terms = (
-        stock_subject.get("subject_label"),
-        stock_subject.get("target_id"),
-        stock_subject.get("stock_code"),
-        stock_subject.get("target_name"),
-    )
-    return any(term and str(term) in text for term in terms)
-
-
-def _bind_stock_subject_to_text(
-    text: str,
-    *,
-    target: Mapping[str, Any],
-    stock_subject: Mapping[str, str],
-) -> tuple[str, bool]:
-    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
-    subject_label = str(stock_subject.get("subject_label") or "")
-    if (
-        not normalized
-        or not subject_label
-        or str(target.get("target_type") or "").strip().lower() != "stock"
-        or (
-            str(target.get("target_id") or "").strip()
-            and str(target.get("target_id") or "").strip().upper()
-            != str(stock_subject.get("target_id") or "").strip().upper()
-        )
-        or _text_mentions_stock_subject(normalized, stock_subject)
-    ):
-        return normalized, False
-
-    replaced, count = GENERIC_STOCK_COMPANY_REFERENCE_RE.subn(
-        lambda match: f"{match.group('prefix')}{subject_label}",
-        normalized,
-        count=1,
-    )
-    if count:
-        return replaced, True
-    return f"{subject_label}：{normalized}", True
 
 
 def _system_prompt() -> str:
@@ -3532,152 +3303,6 @@ def _record_text(value: Any, *fields: str) -> str:
     return ""
 
 
-def _bounded_claim_text(text: str) -> tuple[str, bool]:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if len(normalized) <= MAX_STORED_CLAIM_TEXT_CHARS:
-        return normalized, False
-    return normalized[: MAX_STORED_CLAIM_TEXT_CHARS - 3].rstrip() + "...", True
-
-
-def _is_forecast_claim_candidate_text(text: str) -> bool:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized or is_non_research_claim_text(normalized):
-        return False
-    lowered = normalized.lower()
-    mechanism_hits = sum(
-        1 for term in FORECAST_CLAIM_MECHANISM_TERMS if term in normalized
-    )
-    descriptive_hits = sum(
-        1 for term in FORECAST_CLAIM_DESCRIPTIVE_ONLY_TERMS if term in normalized
-    )
-    numeric_heavy = len(re.findall(r"\d+(?:\.\d+)?%?", normalized)) >= 3
-    if mechanism_hits == 0 and (descriptive_hits or numeric_heavy):
-        return False
-    if numeric_heavy and descriptive_hits and mechanism_hits < 2:
-        return False
-    if not any(term.lower() in lowered for term in FORECAST_CLAIM_FINANCE_IMPACT_TERMS):
-        return False
-    return True
-
-
-MARKET_VIEW_FORECAST_TYPES = {
-    "investment_rating",
-    "stock_outlook",
-    "company_outlook",
-    "sector_outlook",
-    "industry_outlook",
-    "relative_outlook",
-    "asset_allocation_outlook",
-    "macro_asset_outlook",
-    "market_outlook",
-    "bond_market_outlook",
-    "commodity_outlook",
-    "target_price",
-}
-MARKET_VIEW_TARGET_TYPES = {
-    "stock",
-    "sector",
-    "industry",
-    "macro_asset",
-    "asset_class",
-    "market_index",
-    "style_index",
-    "bond",
-    "commodity",
-    "equity_index",
-    "broad_market",
-}
-MARKET_VIEW_RETURN_PROXIES = {
-    "stock_forward_return",
-    "industry_etf_forward_return",
-    "macro_asset_forward_return",
-    "equity_index_forward_return",
-    "bond_etf_forward_return",
-    "gold_etf_forward_return",
-    "forward_return_proxy",
-}
-
-
-def _is_structured_market_view_forecast_claim(
-    record: Mapping[str, Any],
-    claim_text: str,
-    *,
-    target: Mapping[str, Any],
-    metric_proxy_mapping: Sequence[Any],
-) -> bool:
-    normalized = re.sub(r"\s+", " ", claim_text).strip()
-    if not normalized:
-        return False
-    if (
-        is_boilerplate_risk_warning_text(normalized)
-        or is_disclaimer_text(normalized)
-        or is_heading_or_toc_text(normalized)
-    ):
-        return False
-    if str(record.get("claim_provenance") or "") != "source_grounded":
-        return False
-    if str(record.get("forecast_type") or "").strip() not in MARKET_VIEW_FORECAST_TYPES:
-        return False
-    target_type = str(target.get("target_type") or "").strip().lower()
-    if target_type not in MARKET_VIEW_TARGET_TYPES or _target_id(target) == "unknown":
-        return False
-    direction = _normalize_forecast_direction(record.get("direction"))
-    if direction not in {"positive", "negative"}:
-        return False
-    proxies = {
-        str(item or "").strip()
-        for item in metric_proxy_mapping
-        if str(item or "").strip()
-    }
-    return bool(proxies & MARKET_VIEW_RETURN_PROXIES)
-
-
-def _is_forecast_claim_candidate_record(
-    record: Mapping[str, Any],
-    claim_text: str,
-    *,
-    target: Mapping[str, Any],
-    metric_proxy_mapping: Sequence[Any],
-) -> bool:
-    if _is_forecast_claim_candidate_text(claim_text):
-        return True
-    return _is_structured_market_view_forecast_claim(
-        record,
-        claim_text,
-        target=target,
-        metric_proxy_mapping=metric_proxy_mapping,
-    )
-
-
-def _normalize_failure_modes(value: Any) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for item in _ensure_list(value):
-        if isinstance(item, Mapping):
-            text = _record_text(item, "text", "failure_mode", "name")
-            if not text:
-                continue
-            provenance = str(item.get("provenance") or "analyst_or_llm_hypothesis")
-            requires_independent_validation = item.get(
-                "requires_independent_validation"
-            )
-        else:
-            text = str(item or "").strip()
-            if not text:
-                continue
-            provenance = "analyst_or_llm_hypothesis"
-            requires_independent_validation = True
-        records.append(
-            {
-                "text": text,
-                "provenance": provenance,
-                "requires_independent_validation": bool(
-                    True
-                    if requires_independent_validation is None
-                    else requires_independent_validation
-                ),
-            }
-        )
-    return records
 
 
 def _indicator_value_unknown(value: Any) -> bool:
@@ -6170,70 +5795,6 @@ def _metadata_markdown_path(
     return markdown_path
 
 
-def _metadata_publish_date(metadata: Mapping[str, Any]) -> str:
-    for field in ("publish_datetime", "publish_date", "accessible_datetime"):
-        value = str(metadata.get(field) or "").strip()
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value[:10]):
-            return value[:10]
-    return ""
-
-
-def _report_level_horizon_by_source_from_metadata(
-    metadata_rows: Sequence[Mapping[str, Any]],
-    *,
-    root_path: Path | None,
-) -> dict[str, dict[str, Any]]:
-    return {
-        source_id: dict(_ensure_mapping(context.get("default_horizon")))
-        for source_id, context in _report_temporal_context_by_source_from_metadata(
-            metadata_rows,
-            root_path=root_path,
-        ).items()
-        if _ensure_mapping(context.get("default_horizon"))
-    }
-
-
-def _report_context_by_source_from_metadata(
-    metadata_rows: Sequence[Mapping[str, Any]],
-    *,
-    root_path: Path | None,
-) -> dict[str, dict[str, Any]]:
-    if root_path is None:
-        return {}
-    contexts: dict[str, dict[str, Any]] = {}
-    for metadata in metadata_rows:
-        source_id = str(metadata.get("source_id") or "")
-        if not source_id:
-            continue
-        markdown_path = _metadata_markdown_path(metadata, root_path=root_path)
-        if markdown_path is None:
-            continue
-        markdown_text = markdown_path.read_text(encoding="utf-8", errors="ignore")
-        context = _build_report_context(
-            metadata,
-            markdown_text,
-            _metadata_publish_date(metadata),
-        )
-        if context:
-            contexts[source_id] = context
-    return contexts
-
-
-def _report_temporal_context_by_source_from_metadata(
-    metadata_rows: Sequence[Mapping[str, Any]],
-    *,
-    root_path: Path | None,
-) -> dict[str, dict[str, Any]]:
-    return {
-        source_id: dict(_ensure_mapping(context.get("temporal_context")))
-        for source_id, context in _report_context_by_source_from_metadata(
-            metadata_rows,
-            root_path=root_path,
-        ).items()
-        if _ensure_mapping(context.get("temporal_context"))
-    }
-
-
 def _footprint_markdown_chunk(
     row: Mapping[str, Any],
     *,
@@ -6319,25 +5880,6 @@ def _normalize_forecast_direction(value: Any) -> str:
     }
     normalized = aliases.get(text, text)
     if normalized in {"positive", "negative", "neutral", "ambiguous", "unknown"}:
-        return normalized
-    return "unknown"
-
-
-def _normalize_claim_provenance(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    aliases = {
-        "source_gounded": "source_grounded",
-        "source-grounded": "source_grounded",
-        "source grounded": "source_grounded",
-        "grounded": "source_grounded",
-        "true": "source_grounded",
-        "analyst_hypothesis": "analyst_or_llm_hypothesis",
-        "llm_hypothesis": "analyst_or_llm_hypothesis",
-        "hypothesis": "analyst_or_llm_hypothesis",
-        "false": "analyst_or_llm_hypothesis",
-    }
-    normalized = aliases.get(text, text)
-    if normalized in {"source_grounded", "analyst_or_llm_hypothesis", "unknown"}:
         return normalized
     return "unknown"
 
@@ -6514,20 +6056,6 @@ def _explicit_year_horizon_from_claim_text(
         "source": "explicit_claim_text",
         "source_text": source_text,
     }
-
-
-def _horizon_days_from_mapping(horizon: Mapping[str, Any]) -> int | None:
-    for key in ("preferred_days", "max_days", "min_days"):
-        try:
-            return int(horizon[key])
-        except (KeyError, TypeError, ValueError):
-            continue
-    return None
-
-
-def _horizon_exceeds_reasonable_bound(horizon: Mapping[str, Any]) -> bool:
-    days = _horizon_days_from_mapping(horizon)
-    return days is not None and days > MAX_REASONABLE_FORECAST_HORIZON_DAYS
 
 
 def _infer_horizon_from_claim_text(
@@ -6964,31 +6492,6 @@ def _build_report_context(
     return {key: value for key, value in context.items() if value}
 
 
-def _claim_may_inherit_report_level_horizon(
-    claim_text: str,
-    *,
-    forecast_type: str,
-    target: Mapping[str, Any],
-    metric_proxy_mapping: Sequence[Any],
-) -> bool:
-    forecast_type_text = str(forecast_type or "").strip().lower()
-    if re.search(r"rating|target_price|investment_rating", forecast_type_text):
-        return True
-    proxies = {
-        str(item or "").strip()
-        for item in metric_proxy_mapping
-        if str(item or "").strip()
-    }
-    if not proxies & MARKET_VIEW_RETURN_PROXIES:
-        return False
-    return bool(
-        re.search(
-            r"预计|预期|有望|将|看好|受益|改善|修复|提升|增长|上涨|跑赢|承压|下行|下降|跑输",
-            str(claim_text or ""),
-        )
-    )
-
-
 METRIC_PROXY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
     (r"营收|营业收入|收入增长|销售收入|收入端|revenue", "revenue_growth"),
     (r"归母净利润|净利润|利润增长|盈利增长|业绩增长|利润端|earnings", "earnings_growth"),
@@ -7013,18 +6516,6 @@ METRIC_PROXY_INFERENCE_RULES: tuple[tuple[str, str], ...] = (
     (r"黄金|金价|贵金属", "gold_etf_forward_return"),
     (r"大类资产|资产配置|多资产|股债|风险资产", "macro_asset_forward_return"),
 )
-COMMODITY_PRICE_CYCLE_RE = re.compile(
-    r"黄金|金价|白银|银价|贵金属|铜价|铝价|锂价|钴价|镍价|锌价|"
-    r"铅价|钨价|锑价|煤价|煤炭|动力煤|焦煤|焦炭|铁矿|铁矿石|"
-    r"钢价|天然气|气价|LNG|氦气|油价|原油|商品价格|大宗商品|commodity|gold|copper|lithium",
-    flags=re.IGNORECASE,
-)
-LIQUIDITY_CREDIT_CONTEXT_RE = re.compile(
-    r"政策利率|市场利率|资金利率|利率环境|利率下行|利率上行|短端利率|"
-    r"长端利率|流动性|社融|信贷|货币政策|资金面|信用利差|信用周期|"
-    r"信用环境|信用扩张|信用收缩|融资成本|降准|降息|加息",
-    flags=re.IGNORECASE,
-)
 
 
 CLAIM_REGIME_CONTEXT_RE = re.compile(
@@ -7045,13 +6536,6 @@ CLAIM_MACRO_REGIME_RULES: tuple[tuple[str, str], ...] = (
     ("global_growth_inflation", r"全球经济|海外经济|通胀|再通胀|衰退|复苏|PMI"),
     ("fiscal_policy", r"财政|专项债|国债|赤字|税收|补贴"),
     ("regulatory_policy", r"监管|产业政策|政策支持|政策约束|政策放松"),
-)
-CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS = (
-    "macro.central_bank",
-    "macro.china",
-    "macro.dollar",
-    "macro.yield_curve",
-    "macro.volatility",
 )
 CLAIM_REGIME_TRACE_AGENT_BY_REGIME: Mapping[str, tuple[str, ...]] = {
     "us_rate_cut_cycle": ("macro.central_bank", "macro.yield_curve"),
@@ -7269,100 +6753,6 @@ def _as_of_date_macro_regime_context(
     return deduped_types, sources, deduped_details
 
 
-def _claim_regime_trace_agents_for_types(regime_types: Sequence[Any]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            agent
-            for regime_type in regime_types
-            for agent in CLAIM_REGIME_TRACE_AGENT_BY_REGIME.get(str(regime_type), ())
-        )
-    )
-
-
-def _claim_regime_trace_types_for_agent(
-    agent: str,
-    regime_types: Sequence[Any],
-) -> tuple[str, ...]:
-    return tuple(
-        str(regime_type)
-        for regime_type in regime_types
-        if agent in _claim_regime_trace_agents_for_types((regime_type,))
-    )
-
-
-def _build_claim_regime_trace(
-    *,
-    as_of_datetime: Any,
-    target: Mapping[str, Any],
-    component_roles: Mapping[str, Any],
-) -> dict[str, Any]:
-    macro_types = _ensure_list(component_roles.get("macro_regime_context_types"))
-    as_of_types = _ensure_list(
-        component_roles.get("as_of_date_macro_regime_context_types")
-    )
-    source_text_types = _ensure_list(
-        component_roles.get("source_text_macro_regime_context_types")
-    )
-    details = [
-        dict(item)
-        for item in _ensure_list(
-            component_roles.get("as_of_date_macro_regime_context_details")
-        )
-        if isinstance(item, Mapping)
-    ]
-    details_by_type = {str(item.get("regime_type") or ""): item for item in details}
-    macro_scope = tuple(
-        dict.fromkeys(
-            (
-                *CLAIM_REGIME_TRACE_DEFAULT_MACRO_AGENTS,
-                *_claim_regime_trace_agents_for_types(macro_types),
-            )
-        )
-    )
-    macro = {}
-    as_of_date = _as_of_date_key(as_of_datetime)
-    for agent in macro_scope:
-        regime_types = _claim_regime_trace_types_for_agent(agent, macro_types)
-        macro[agent] = {
-            "as_of_date": as_of_date,
-            "regime_types": regime_types,
-            "as_of_date_regime_types": _claim_regime_trace_types_for_agent(
-                agent,
-                as_of_types,
-            ),
-            "source_text_regime_types": _claim_regime_trace_types_for_agent(
-                agent,
-                source_text_types,
-            ),
-            "regime_details": tuple(
-                details_by_type[regime_type]
-                for regime_type in regime_types
-                if regime_type in details_by_type
-            ),
-            "background_only": True,
-        }
-    return {
-        "schema_version": "claim_regime_trace_v1",
-        "as_of_date": as_of_date,
-        "policy": (
-            "PIT regime trace is background only. Claim extraction records the "
-            "as-of-date regime context for later outcome/backtest stratification; "
-            "it does not validate claim correctness."
-        ),
-        "macro": macro,
-        "industry": {
-            "regime_types": tuple(
-                str(item)
-                for item in _ensure_list(
-                    component_roles.get("industry_cycle_regime_context_types")
-                )
-            ),
-            "industry": str(target.get("target_id") or target.get("target_name") or ""),
-        },
-        "company": {
-            "target_id": str(target.get("target_id") or target.get("target_name") or ""),
-        },
-    }
 CLAIM_COMPANY_CAPABILITY_RE = re.compile(
     r"公司|自身|实验室|投产|达效|全国布局|产能利用|渠道|客户|订单|技术|研发|产品|费用管控|降本|管理|执行|市占率|份额",
     flags=re.IGNORECASE,
@@ -7533,142 +6923,6 @@ def _infer_claim_component_roles(
             "regime must be source-text derived"
         ),
     }
-
-
-def _target_return_metric(target: Mapping[str, Any], claim_text: str) -> str:
-    target_type = str(target.get("target_type") or "").strip().lower()
-    if target_type == "stock":
-        return "stock_forward_return"
-    if target_type in {"sector", "industry"}:
-        return "industry_etf_forward_return"
-    if target_type in {"bond"}:
-        return "bond_etf_forward_return"
-    if target_type in {"market_index", "style_index", "equity_index", "broad_market"}:
-        return "equity_index_forward_return"
-    if target_type in {"macro_asset", "asset_class"}:
-        return "macro_asset_forward_return"
-    if target_type == "commodity":
-        if re.search(r"黄金|金价|贵金属", claim_text):
-            return "gold_etf_forward_return"
-        return "commodity_spot_price"
-    if re.search(r"股价|股票|买入|增持|减持|目标价", claim_text):
-        return "stock_forward_return"
-    if re.search(r"板块|行业|超配|低配|跑赢|跑输", claim_text):
-        return "industry_etf_forward_return"
-    if re.search(r"A股|权益市场|沪深300|上证50|中证500|创业板|港股|美股|纳斯达克|标普", claim_text):
-        return "equity_index_forward_return"
-    if re.search(r"债券|债市|国债|利率债|信用债|城投债|固收", claim_text):
-        return "bond_etf_forward_return"
-    if re.search(r"黄金|金价|贵金属", claim_text):
-        return "gold_etf_forward_return"
-    return "forward_return_proxy"
-
-
-def _normalize_metric_proxy_mapping(
-    value: Any,
-    *,
-    claim_text: str,
-    target: Mapping[str, Any],
-) -> tuple[list[str], bool]:
-    records = [
-        str(item).strip()
-        for item in _ensure_list(value)
-        if str(item or "").strip()
-        and str(item or "").strip().lower() not in {"unknown", "n/a", "na", "none"}
-    ]
-    inferred: list[str] = []
-    normalized_text = re.sub(r"\s+", " ", str(claim_text or ""))
-    for pattern, metric in METRIC_PROXY_INFERENCE_RULES:
-        if re.search(pattern, normalized_text, flags=re.IGNORECASE):
-            inferred.append(metric)
-    target_type = str(target.get("target_type") or "").strip().lower()
-    has_commodity_context = (
-        target_type == "commodity"
-        or bool(COMMODITY_PRICE_CYCLE_RE.search(normalized_text))
-    )
-    if not has_commodity_context:
-        records = [
-            item
-            for item in records
-            if item not in {"commodity_price_cycle", "commodity_spot_price"}
-        ]
-        inferred = [
-            item
-            for item in inferred
-            if item not in {"commodity_price_cycle", "commodity_spot_price"}
-        ]
-    if not LIQUIDITY_CREDIT_CONTEXT_RE.search(normalized_text):
-        records = [
-            item for item in records if item != "liquidity_credit_condition"
-        ]
-        inferred = [
-            item for item in inferred if item != "liquidity_credit_condition"
-        ]
-    if (
-        target_type == "commodity"
-        and "commodity_price_cycle" in inferred
-    ):
-        inferred.append("commodity_spot_price")
-    if re.search(
-        r"股价|股价表现|跑赢|跑输|超额收益|收益率|上涨|下跌|回报|买入|增持|减持|评级|目标价",
-        normalized_text,
-    ):
-        inferred.append(_target_return_metric(target, normalized_text))
-    if re.search(r"跑赢|跑输|超额收益|相对收益|alpha|阿尔法", normalized_text, flags=re.IGNORECASE):
-        inferred.append("relative_alpha")
-
-    merged: list[str] = []
-    seen: set[str] = set()
-    for item in [*records, *inferred]:
-        key = item.lower()
-        if key not in seen:
-            merged.append(item)
-            seen.add(key)
-    return merged, bool(inferred and not records)
-
-
-def _normalize_or_infer_horizon(
-    horizon: Any,
-    *,
-    claim_text: str,
-    publish_date: str,
-    forecast_type: str = "",
-    target: Mapping[str, Any] | None = None,
-    metric_proxy_mapping: Sequence[Any] = (),
-    report_level_horizon: Mapping[str, Any] | None = None,
-    report_temporal_context: Mapping[str, Any] | None = None,
-) -> tuple[dict[str, Any], bool]:
-    normalized = _ensure_mapping(horizon)
-    invalid_model_horizon = _horizon_exceeds_reasonable_bound(normalized)
-    if _horizon_bucket(normalized) != "unknown" and not invalid_model_horizon:
-        return normalized, False
-    inferred = _infer_horizon_from_claim_text(claim_text, publish_date)
-    if inferred:
-        if invalid_model_horizon:
-            inferred["invalid_model_horizon_replaced"] = True
-        return inferred, True
-    inherited = _ensure_mapping(report_level_horizon)
-    temporal_context = _ensure_mapping(report_temporal_context)
-    if not inherited:
-        inherited = _ensure_mapping(temporal_context.get("default_horizon"))
-    if inherited and _claim_may_inherit_report_level_horizon(
-        claim_text,
-        forecast_type=forecast_type,
-        target=_ensure_mapping(target),
-        metric_proxy_mapping=metric_proxy_mapping,
-    ):
-        inherited = dict(inherited)
-        inherited.setdefault("source", "report_temporal_context")
-        if inherited.get("source") == "report_level_rating_definition":
-            inherited["inherited_from_report_level"] = True
-        else:
-            inherited["inherited_from_report_context"] = True
-        if invalid_model_horizon:
-            inherited["invalid_model_horizon_replaced"] = True
-        return inherited, True
-    if invalid_model_horizon:
-        return {}, False
-    return normalized, False
 
 
 def _macro_claim_leg_windows_for_target_type(target_type: str) -> list[int]:
@@ -8282,665 +7536,6 @@ def _assignment_gaps(record: Mapping[str, Any]) -> list[str]:
     return ["agent_assignment_missing"]
 
 
-PRE_REVIEW_DECISIONS = {"include", "exclude", "rewrite_needed"}
-
-
-def _normalize_analyst_claim(
-    claim: Mapping[str, Any],
-    fallback_claim_text: str,
-) -> tuple[str, bool]:
-    raw = _record_text(
-        claim,
-        "analyst_claim",
-        "refined_claim",
-        "financial_practitioner_claim",
-    )
-    if not raw:
-        return fallback_claim_text, False
-    analyst_claim, truncated = _bounded_claim_text(raw)
-    return analyst_claim, analyst_claim != fallback_claim_text or truncated
-
-
-def _normalized_pre_review_decision(value: Any) -> str:
-    decision = str(value or "").strip().lower()
-    return decision if decision in PRE_REVIEW_DECISIONS else ""
-
-
-def _forecast_claim_pre_review(
-    record: Mapping[str, Any],
-    *,
-    component_roles: Mapping[str, Any],
-    mechanism_roles: Mapping[str, Any],
-    mapping_gaps: Sequence[str],
-    analyst_claim_adjusted: bool,
-    llm_decision: Any = "",
-    llm_reason: Any = "",
-) -> dict[str, Any]:
-    direction = _normalize_forecast_direction(record.get("direction"))
-    target = _ensure_mapping(record.get("target"))
-    guardrail_blockers: list[str] = []
-    if str(record.get("claim_provenance") or "") != "source_grounded":
-        guardrail_blockers.append("not_source_grounded")
-    if direction not in {"positive", "negative"}:
-        guardrail_blockers.append("direction_missing_or_not_actionable")
-    if _target_id(target) == "unknown":
-        guardrail_blockers.append("target_missing")
-    if component_roles.get("has_market_or_fundamental_impact") is not True:
-        guardrail_blockers.append("market_or_fundamental_impact_missing")
-    if mechanism_roles.get("has_economic_mechanism") is not True:
-        guardrail_blockers.append("economic_mechanism_missing")
-    if mechanism_roles.get("mechanism_connects_to_evaluable_impact") is not True:
-        guardrail_blockers.append("mechanism_to_impact_link_missing")
-    if is_non_research_claim_text(str(record.get("claim_text") or "")):
-        guardrail_blockers.append("non_research_or_boilerplate_text")
-
-    model_decision = _normalized_pre_review_decision(llm_decision)
-    if guardrail_blockers:
-        decision = "exclude"
-        decision_source = "deterministic_guardrail"
-    elif model_decision:
-        decision = model_decision
-        decision_source = "llm_financial_practitioner"
-    elif mapping_gaps or component_roles.get("has_regime_context") is not True:
-        decision = "rewrite_needed"
-        decision_source = "deterministic_guardrail"
-    else:
-        decision = "include"
-        decision_source = "deterministic_guardrail"
-
-    reason = str(llm_reason or "").strip()
-    if not reason:
-        if guardrail_blockers:
-            reason = "guardrail blockers: " + ", ".join(guardrail_blockers)
-        elif mapping_gaps:
-            reason = "mapping gaps require human confirmation: " + ", ".join(mapping_gaps)
-        elif component_roles.get("has_regime_context") is not True:
-            reason = "claim has mechanism and impact but lacks explicit regime context"
-        else:
-            reason = (
-                "source-grounded financial thesis with direction, target, mechanism, "
-                "and finance-relevant impact"
-            )
-
-    return {
-        "schema_version": "forecast_claim_pre_review_v1",
-        "perspective": "financial_practitioner",
-        "decision": decision,
-        "decision_source": decision_source,
-        "reason": reason,
-        "guardrail_blockers": guardrail_blockers,
-        "mapping_gaps": list(mapping_gaps),
-        "quality_checks": {
-            "source_grounded": str(record.get("claim_provenance") or "") == "source_grounded",
-            "has_macro_regime_context": component_roles.get("has_macro_regime_context") is True,
-            "has_industry_cycle_regime_context": (
-                component_roles.get("has_industry_cycle_regime_context") is True
-            ),
-            "has_company_capability_or_action": (
-                component_roles.get("has_company_capability_or_action") is True
-            ),
-            "has_economic_mechanism": mechanism_roles.get("has_economic_mechanism") is True,
-            "mechanism_connects_to_evaluable_impact": (
-                mechanism_roles.get("mechanism_connects_to_evaluable_impact") is True
-            ),
-            "has_market_or_fundamental_impact": (
-                component_roles.get("has_market_or_fundamental_impact") is True
-            ),
-            "has_target": _target_id(target) != "unknown",
-            "has_direction": direction in {"positive", "negative"},
-            "has_horizon": _horizon_bucket(_ensure_mapping(record.get("horizon"))) != "unknown",
-            "analyst_claim_adjusted": analyst_claim_adjusted,
-        },
-        "claim_regime_trace_policy": "background_only_not_claim_validation",
-    }
-
-
-def _normalize_forecast_claims(
-    payload: Mapping[str, Any],
-    row: Mapping[str, Any],
-    *,
-    run_id: str,
-    model: str,
-    report_id: str,
-    chunk_span_id: str,
-    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
-    report_level_horizon: Mapping[str, Any] | None = None,
-    report_temporal_context: Mapping[str, Any] | None = None,
-    report_context: Mapping[str, Any] | None = None,
-    section_context: Mapping[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for item in _ensure_list(payload.get("forecast_claims")):
-        claim = _ensure_mapping(item)
-        raw_claim_text = _record_text(claim, "claim_text", "text")
-        if not raw_claim_text:
-            continue
-        target = _ensure_mapping(claim.get("target"))
-        stock_subject = _stock_subject_from_metadata(row)
-        target, stock_target_bound = _target_with_metadata_stock_subject(
-            target,
-            stock_subject,
-        )
-        raw_claim_text, claim_subject_bound = _bind_stock_subject_to_text(
-            raw_claim_text,
-            target=target,
-            stock_subject=stock_subject,
-        )
-        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
-            claim.get("metric_proxy_mapping"),
-            claim_text=raw_claim_text,
-            target=target,
-        )
-        claim_text, claim_text_truncated = _bounded_claim_text(raw_claim_text)
-        analyst_claim, analyst_claim_adjusted = _normalize_analyst_claim(
-            claim,
-            claim_text,
-        )
-        analyst_claim, analyst_subject_bound = _bind_stock_subject_to_text(
-            analyst_claim,
-            target=target,
-            stock_subject=stock_subject,
-        )
-        analyst_claim_adjusted = (
-            analyst_claim_adjusted or claim_subject_bound or analyst_subject_bound
-        )
-        forecast_type = str(claim.get("forecast_type") or "unknown")
-        horizon, horizon_inferred = _normalize_or_infer_horizon(
-            claim.get("horizon"),
-            claim_text=raw_claim_text,
-            publish_date=str(row.get("publish_date") or ""),
-            forecast_type=forecast_type,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-            report_level_horizon=report_level_horizon,
-            report_temporal_context=report_temporal_context,
-        )
-        record = {
-            "forecast_claim_id": _stable_id(
-                "FC",
-                {
-                    "report_id": report_id,
-                    "chunk_span_id": chunk_span_id,
-                    "claim_text": claim_text,
-                },
-            ),
-            "claim_id": _stable_id(
-                "CLAIM",
-                {
-                    "report_id": report_id,
-                    "claim_text": claim_text,
-                },
-            ),
-            "report_id": report_id,
-            "source_id": str(row.get("source_id") or ""),
-            "source_span_ids": _source_span_ids(claim, chunk_span_id),
-            "claim_text": claim_text,
-            "analyst_claim": analyst_claim,
-            "claim_provenance": _normalize_claim_provenance(
-                claim.get("claim_provenance")
-            ),
-            "forecast_testability": str(
-                claim.get("forecast_testability") or "insufficient_mapping"
-            ),
-            "forecast_type": forecast_type,
-            "target": target,
-            "benchmark": _ensure_mapping(claim.get("benchmark")),
-            "direction": _normalize_forecast_direction(claim.get("direction")),
-            "horizon": horizon,
-            "signal_datetime": str(row.get("publish_date") or ""),
-            "entry_rule": _ensure_mapping(claim.get("entry_rule")),
-            "explicitness": str(claim.get("explicitness") or "unknown"),
-            "source_conviction": str(claim.get("source_conviction") or "unknown"),
-            "metric_proxy_mapping": metric_proxy_mapping,
-            "failure_modes": _normalize_failure_modes(claim.get("failure_modes")),
-            "extraction_quality": _ensure_mapping(claim.get("extraction_quality")),
-            "extractor": {
-                "run_id": run_id,
-                "model": model,
-                "input_mode": "original_markdown",
-            },
-        }
-        if not _is_forecast_claim_candidate_record(
-            record,
-            raw_claim_text,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-        ):
-            continue
-        record["extraction_quality"][
-            "claim_text_truncated_for_redaction"
-        ] = claim_text_truncated
-        if record["claim_provenance"] == "source_grounded":
-            record["extraction_quality"].setdefault("span_grounded", True)
-        context = dict(_ensure_mapping(report_context))
-        if not context:
-            subject_context = _infer_report_subject_context(row)
-            if subject_context:
-                context["subject_context"] = subject_context
-        section = _ensure_mapping(section_context)
-        if section:
-            context["section_context"] = dict(section)
-        if context:
-            record["extraction_quality"]["report_context"] = context
-        if stock_target_bound:
-            record["extraction_quality"]["stock_target_bound_from_metadata"] = True
-        if claim_subject_bound or analyst_subject_bound:
-            record["extraction_quality"]["stock_subject_bound_from_metadata"] = True
-            record["extraction_quality"]["stock_subject_label"] = stock_subject.get(
-                "subject_label",
-                "",
-            )
-            record["extraction_quality"]["claim_text_stock_subject_bound"] = (
-                claim_subject_bound
-            )
-            record["extraction_quality"]["analyst_claim_stock_subject_bound"] = (
-                analyst_subject_bound
-            )
-        component_roles = _infer_claim_component_roles(
-            raw_claim_text,
-            target=target,
-            as_of_datetime=row.get("publish_date"),
-            macro_regime_calendar_rows=macro_regime_calendar_rows,
-        )
-        record["extraction_quality"]["claim_component_roles"] = component_roles
-        record["claim_regime_trace"] = _build_claim_regime_trace(
-            as_of_datetime=row.get("publish_date"),
-            target=target,
-            component_roles=component_roles,
-        )
-        mechanism_roles = _infer_claim_mechanism_roles(
-            raw_claim_text,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-        )
-        record["extraction_quality"]["claim_mechanism_roles"] = mechanism_roles
-        macro_claim_legs = _normalize_macro_claim_legs(
-            claim.get("macro_claim_legs"),
-            parent_record=record,
-        )
-        if macro_claim_legs:
-            record["macro_claim_legs"] = macro_claim_legs
-            record["extraction_quality"]["macro_claim_leg_count"] = len(
-                macro_claim_legs
-            )
-            record["extraction_quality"][
-                "macro_claim_leg_policy"
-            ] = "parent_claim_preserves_full_thesis_child_legs_drive_macro_outcomes"
-        if horizon_inferred:
-            if horizon.get("source") == "report_level_rating_definition":
-                record["extraction_quality"][
-                    "horizon_inferred_from_report_level"
-                ] = True
-                record["extraction_quality"]["report_level_horizon"] = dict(horizon)
-                record["extraction_quality"][
-                    "report_level_horizon_source_text"
-                ] = horizon.get("source_text", "")
-            elif horizon.get("source") in {
-                "report_temporal_context",
-                "section_context",
-                "report_type_default",
-            }:
-                record["extraction_quality"][
-                    "horizon_inferred_from_report_temporal_context"
-                ] = True
-                record["extraction_quality"]["report_temporal_context"] = dict(
-                    _ensure_mapping(report_temporal_context)
-                )
-                record["extraction_quality"][
-                    "report_temporal_context_source_text"
-                ] = horizon.get("source_text", "")
-            else:
-                record["extraction_quality"][
-                    "horizon_inferred_from_claim_text"
-                ] = True
-                record["extraction_quality"][
-                    "horizon_inference_source_text"
-                ] = horizon.get(
-                    "source_text",
-                    "",
-                )
-        if metric_proxy_inferred:
-            record["extraction_quality"][
-                "metric_proxy_mapping_inferred_from_claim_text"
-            ] = True
-        mapping_gaps = _forecast_mapping_gaps(record)
-        if mapping_gaps:
-            record["forecast_testability"] = "insufficient_mapping"
-            record["extraction_quality"]["mapping_gaps"] = mapping_gaps
-            record["extraction_quality"]["needs_human_review"] = True
-        record["pre_review"] = _forecast_claim_pre_review(
-            record,
-            component_roles=component_roles,
-            mechanism_roles=mechanism_roles,
-            mapping_gaps=mapping_gaps,
-            analyst_claim_adjusted=analyst_claim_adjusted,
-            llm_decision=claim.get("pre_review_decision"),
-            llm_reason=claim.get("pre_review_reason"),
-        )
-        records.append(record)
-    return records
-
-
-def _forecast_claim_selection_score(record: Mapping[str, Any]) -> tuple[int, ...]:
-    target = _ensure_mapping(record.get("target"))
-    horizon = _ensure_mapping(record.get("horizon"))
-    extraction_quality = _ensure_mapping(record.get("extraction_quality"))
-    component_roles = _ensure_mapping(extraction_quality.get("claim_component_roles"))
-    mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
-    conviction = str(record.get("source_conviction") or "").strip().lower()
-    conviction_rank = {
-        "very_high": 4,
-        "high": 3,
-        "strong": 3,
-        "medium": 2,
-        "moderate": 2,
-        "low": 1,
-        "weak": 1,
-    }.get(conviction, 0)
-    return (
-        int(record.get("claim_provenance") == "source_grounded"),
-        int(record.get("forecast_testability") == "testable"),
-        int(
-            _normalize_forecast_direction(record.get("direction"))
-            in {"positive", "negative"}
-        ),
-        int(_target_id(target) != "unknown"),
-        int(_horizon_bucket(horizon) != "unknown"),
-        int(bool(_ensure_list(record.get("metric_proxy_mapping")))),
-        int(mechanism_roles.get("has_economic_mechanism") is True),
-        int(
-            mechanism_roles.get("mechanism_connects_to_evaluable_impact")
-            is True
-        ),
-        int(component_roles.get("has_regime_context") is True),
-        conviction_rank,
-    )
-
-
-def _top_forecast_claim_indices(
-    indexed_records: Sequence[tuple[int, Mapping[str, Any]]],
-    *,
-    limit: int,
-) -> set[int]:
-    ranked = sorted(
-        indexed_records,
-        key=lambda item: (_forecast_claim_selection_score(item[1]), -item[0]),
-        reverse=True,
-    )
-    return {index for index, _record in ranked[:limit]}
-
-
-def _select_report_forecast_claims(
-    records: Sequence[Mapping[str, Any]],
-    *,
-    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
-) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    if len(records) <= limit:
-        return [dict(record) for record in records]
-    selected_indices = _top_forecast_claim_indices(tuple(enumerate(records)), limit=limit)
-    return [
-        dict(record)
-        for index, record in enumerate(records)
-        if index in selected_indices
-    ]
-
-
-def _select_forecast_claims_per_report(
-    records: Sequence[Mapping[str, Any]],
-    *,
-    limit: int = MAX_FORECAST_CLAIMS_PER_REPORT,
-) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    buckets: dict[str, list[tuple[int, Mapping[str, Any]]]] = defaultdict(list)
-    for index, record in enumerate(records):
-        report_key = str(record.get("report_id") or record.get("source_id") or "unknown")
-        buckets[report_key].append((index, record))
-    selected_indices: set[int] = set()
-    for indexed_records in buckets.values():
-        if len(indexed_records) <= limit:
-            selected_indices.update(index for index, _record in indexed_records)
-            continue
-        selected_indices.update(
-            _top_forecast_claim_indices(tuple(indexed_records), limit=limit)
-        )
-    return [
-        dict(record)
-        for index, record in enumerate(records)
-        if index in selected_indices
-    ]
-
-
-def _refresh_forecast_mapping_governance(
-    forecast_rows: Sequence[Mapping[str, Any]],
-    *,
-    metadata_rows: Sequence[Mapping[str, Any]] = (),
-    macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
-    root_path: Path | None = None,
-) -> list[dict[str, Any]]:
-    metadata_by_source = _source_report_metadata(metadata_rows) if metadata_rows else {}
-    report_context_by_source = _report_context_by_source_from_metadata(
-        metadata_rows,
-        root_path=root_path,
-    )
-    report_level_horizon_by_source = _report_level_horizon_by_source_from_metadata(
-        metadata_rows,
-        root_path=root_path,
-    )
-    report_temporal_context_by_source = _report_temporal_context_by_source_from_metadata(
-        metadata_rows,
-        root_path=root_path,
-    )
-    refreshed_rows: list[dict[str, Any]] = []
-    for row in forecast_rows:
-        refreshed = dict(row)
-        source_id = str(refreshed.get("source_id") or "")
-        target = _ensure_mapping(refreshed.get("target"))
-        metadata = metadata_by_source.get(source_id) or {}
-        stock_subject = _stock_subject_from_metadata(metadata)
-        target, stock_target_bound = _target_with_metadata_stock_subject(
-            target,
-            stock_subject,
-        )
-        claim_text = str(refreshed.get("claim_text") or "")
-        claim_text, claim_subject_bound = _bind_stock_subject_to_text(
-            claim_text,
-            target=target,
-            stock_subject=stock_subject,
-        )
-        analyst_claim = str(refreshed.get("analyst_claim") or "").strip()
-        if not analyst_claim:
-            analyst_claim = claim_text
-        analyst_claim, analyst_subject_bound = _bind_stock_subject_to_text(
-            analyst_claim,
-            target=target,
-            stock_subject=stock_subject,
-        )
-        analyst_claim_adjusted = bool(
-            analyst_claim != claim_text or claim_subject_bound or analyst_subject_bound
-        )
-        refreshed["claim_text"] = claim_text
-        refreshed["analyst_claim"] = analyst_claim
-        refreshed["target"] = target
-        if claim_subject_bound:
-            report_id = str(refreshed.get("report_id") or "")
-            source_span_ids = _ensure_list(refreshed.get("source_span_ids"))
-            chunk_span_id = str(source_span_ids[0] if source_span_ids else "")
-            if report_id:
-                refreshed["claim_id"] = _stable_id(
-                    "CLAIM",
-                    {"report_id": report_id, "claim_text": claim_text},
-                )
-            if report_id and chunk_span_id:
-                refreshed["forecast_claim_id"] = _stable_id(
-                    "FC",
-                    {
-                        "report_id": report_id,
-                        "chunk_span_id": chunk_span_id,
-                        "claim_text": claim_text,
-                    },
-                )
-        metric_proxy_mapping, metric_proxy_inferred = _normalize_metric_proxy_mapping(
-            refreshed.get("metric_proxy_mapping"),
-            claim_text=claim_text,
-            target=target,
-        )
-        if not _is_forecast_claim_candidate_record(
-            refreshed,
-            claim_text,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-        ):
-            continue
-        extraction_quality = dict(_ensure_mapping(refreshed.get("extraction_quality")))
-        report_context = _ensure_mapping(extraction_quality.get("report_context"))
-        if not report_context:
-            report_context = report_context_by_source.get(source_id, {})
-        if report_context:
-            extraction_quality["report_context"] = dict(report_context)
-        report_level_horizon = _ensure_mapping(
-            extraction_quality.get("report_level_horizon")
-        )
-        if not report_level_horizon:
-            report_level_horizon = report_level_horizon_by_source.get(source_id, {})
-        report_temporal_context = _ensure_mapping(
-            extraction_quality.get("report_temporal_context")
-        )
-        if not report_temporal_context:
-            report_temporal_context = _ensure_mapping(
-                report_context.get("temporal_context")
-            )
-        if not report_temporal_context:
-            report_temporal_context = report_temporal_context_by_source.get(source_id, {})
-        forecast_type = str(refreshed.get("forecast_type") or "unknown")
-        horizon, horizon_inferred = _normalize_or_infer_horizon(
-            refreshed.get("horizon"),
-            claim_text=claim_text,
-            publish_date=str(
-                refreshed.get("signal_datetime")
-                or refreshed.get("publish_date")
-                or "",
-            ),
-            forecast_type=forecast_type,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-            report_level_horizon=report_level_horizon,
-            report_temporal_context=report_temporal_context,
-        )
-        refreshed["horizon"] = horizon
-        if stock_target_bound:
-            extraction_quality["stock_target_bound_from_metadata"] = True
-        if claim_subject_bound or analyst_subject_bound:
-            extraction_quality["stock_subject_bound_from_metadata"] = True
-            extraction_quality["stock_subject_label"] = stock_subject.get(
-                "subject_label",
-                "",
-            )
-            extraction_quality["claim_text_stock_subject_bound"] = claim_subject_bound
-            extraction_quality["analyst_claim_stock_subject_bound"] = (
-                analyst_subject_bound
-            )
-        refreshed["metric_proxy_mapping"] = metric_proxy_mapping
-        if horizon_inferred:
-            if horizon.get("source") == "report_level_rating_definition":
-                extraction_quality.pop("horizon_inferred_from_claim_text", None)
-                extraction_quality.pop("horizon_inference_source_text", None)
-                extraction_quality.pop(
-                    "horizon_inferred_from_report_temporal_context",
-                    None,
-                )
-                extraction_quality["horizon_inferred_from_report_level"] = True
-                extraction_quality["report_level_horizon"] = dict(horizon)
-                extraction_quality["report_level_horizon_source_text"] = horizon.get(
-                    "source_text",
-                    "",
-                )
-            elif horizon.get("source") in {
-                "report_temporal_context",
-                "section_context",
-                "report_type_default",
-            }:
-                extraction_quality.pop("horizon_inferred_from_claim_text", None)
-                extraction_quality.pop("horizon_inference_source_text", None)
-                extraction_quality.pop("horizon_inferred_from_report_level", None)
-                extraction_quality.pop("report_level_horizon_source_text", None)
-                extraction_quality[
-                    "horizon_inferred_from_report_temporal_context"
-                ] = True
-                extraction_quality["report_temporal_context"] = dict(
-                    report_temporal_context
-                )
-                extraction_quality[
-                    "report_temporal_context_source_text"
-                ] = horizon.get("source_text", "")
-            else:
-                extraction_quality.pop("horizon_inferred_from_report_level", None)
-                extraction_quality.pop("report_level_horizon_source_text", None)
-                extraction_quality.pop(
-                    "horizon_inferred_from_report_temporal_context",
-                    None,
-                )
-                extraction_quality["horizon_inferred_from_claim_text"] = True
-                extraction_quality["horizon_inference_source_text"] = horizon.get(
-                    "source_text",
-                    "",
-                )
-        if metric_proxy_inferred:
-            extraction_quality["metric_proxy_mapping_inferred_from_claim_text"] = True
-        component_roles = _infer_claim_component_roles(
-            claim_text,
-            target=target,
-            as_of_datetime=(
-                refreshed.get("signal_datetime")
-                or refreshed.get("publish_date")
-                or ""
-            ),
-            macro_regime_calendar_rows=macro_regime_calendar_rows,
-        )
-        extraction_quality["claim_component_roles"] = component_roles
-        refreshed["claim_regime_trace"] = _build_claim_regime_trace(
-            as_of_datetime=(
-                refreshed.get("signal_datetime")
-                or refreshed.get("publish_date")
-                or ""
-            ),
-            target=target,
-            component_roles=component_roles,
-        )
-        extraction_quality["claim_mechanism_roles"] = _infer_claim_mechanism_roles(
-            claim_text,
-            target=target,
-            metric_proxy_mapping=metric_proxy_mapping,
-        )
-        mechanism_roles = _ensure_mapping(extraction_quality.get("claim_mechanism_roles"))
-        mapping_gaps = _forecast_mapping_gaps(refreshed)
-        if mapping_gaps:
-            refreshed["forecast_testability"] = "insufficient_mapping"
-            extraction_quality["mapping_gaps"] = mapping_gaps
-            extraction_quality["needs_human_review"] = True
-        else:
-            extraction_quality.pop("mapping_gaps", None)
-            if refreshed.get("forecast_testability") == "insufficient_mapping":
-                refreshed["forecast_testability"] = "testable"
-                extraction_quality["needs_human_review"] = False
-        refreshed["extraction_quality"] = extraction_quality
-        previous_pre_review = _ensure_mapping(refreshed.get("pre_review"))
-        previous_from_llm = (
-            previous_pre_review.get("decision_source") == "llm_financial_practitioner"
-        )
-        refreshed["pre_review"] = _forecast_claim_pre_review(
-            refreshed,
-            component_roles=component_roles,
-            mechanism_roles=mechanism_roles,
-            mapping_gaps=mapping_gaps,
-            analyst_claim_adjusted=analyst_claim_adjusted,
-            llm_decision=previous_pre_review.get("decision") if previous_from_llm else "",
-            llm_reason=previous_pre_review.get("reason") if previous_from_llm else "",
-        )
-        refreshed_rows.append(refreshed)
-    return _select_forecast_claims_per_report(refreshed_rows)
 
 
 def _refresh_analytical_footprint_indicator_governance(
@@ -9051,7 +7646,6 @@ def _refresh_analytical_footprint_indicator_governance(
         )
         refreshed_rows.append(refreshed)
     return refreshed_rows
-
 
 
 def _normalize_footprints(
@@ -21096,54 +19690,6 @@ def build_macro_agent_research_priors(
     return priors
 
 
-def export_macro_agent_research_priors(
-    *,
-    root: str | Path = ".",
-    registry_dir: str | Path | None = None,
-    as_of_date: str = "",
-    agent_id: str = "",
-    no_source_prose: bool = True,
-) -> dict[str, Any]:
-    root_path = Path(root).expanduser().resolve()
-    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
-    path = registry_path / "macro_agent_research_priors.jsonl"
-    blockers: list[str] = []
-    rows = _read_registry_jsonl(
-        path,
-        label="macro_agent_research_priors",
-        blockers=blockers,
-    )
-    filtered: list[dict[str, Any]] = []
-    for row in rows:
-        if agent_id and str(row.get("agent_id") or "") != agent_id:
-            continue
-        row_as_of_date = str(row.get("as_of_date") or "")
-        if as_of_date and row_as_of_date and row_as_of_date > as_of_date:
-            continue
-        if no_source_prose and _public_payload_private_text_included(row):
-            continue
-        filtered.append(dict(row))
-    gap_reasons: list[str] = []
-    if not path.exists():
-        gap_reasons.append("macro_agent_research_priors_missing")
-    gap_reasons.extend(blockers)
-    if agent_id and not filtered:
-        gap_reasons.append("agent_prior_missing")
-    return {
-        "accepted": not any(reason.endswith("_missing") for reason in gap_reasons),
-        "schema_version": MACRO_AGENT_RESEARCH_PRIOR_SCHEMA_VERSION,
-        "agent_id": agent_id,
-        "as_of_date": as_of_date,
-        "prior_count": len(filtered),
-        "priors": filtered,
-        "gap_reasons": gap_reasons,
-        "no_source_prose": bool(no_source_prose),
-        "source_policy": MACRO_PUBLIC_AGGREGATE_SOURCE_POLICY,
-        "use_policy": MACRO_AGENT_RESEARCH_PRIOR_USE_POLICY,
-        "production_signal_allowed": False,
-    }
-
-
 def build_method_performance_profiles(
     method_rows: Sequence[Mapping[str, Any]],
     *,
@@ -22714,8 +21260,6 @@ def _requested_tools_from_tool_record(row: Mapping[str, Any]) -> list[str]:
             if tool.strip().startswith("tool.requested.")
         }
     )
-
-
 
 
 def _shadow_implemented_requested_tools(
@@ -25055,7 +23599,6 @@ def _stock_industry_evolution_gate_checks(
                 agent_id=agent_id,
                 layer=layer,
                 max_items=3,
-                forecasts=rows,
                 metadata=list(metadata_rows or ()),
             )
             try:
@@ -25718,7 +24261,6 @@ def _agent_context_export_gate_check(
                 agent_id=agent_id,
                 layer=layer,
                 max_items=3,
-                forecasts=forecast_rows,
                 metadata=metadata,
             )
             try:
@@ -34329,14 +32871,11 @@ def _append_unique_method_patterns(
 
 REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS: Mapping[str, str] = {
     "analytical_footprints.jsonl": "footprint_id",
-    "forecast_claims.jsonl": "forecast_claim_id",
     "metric_candidates.jsonl": "metric_candidate_id",
     "method_patterns.jsonl": "method_pattern_id",
     "processing_status.jsonl": "source_id",
     "report_metadata.jsonl": "report_id",
-    "report_outcome_labels.jsonl": "outcome_id",
     "tool_gaps.jsonl": "tool_gap_id",
-    "weighted_research_contexts.jsonl": "weighted_context_id",
 }
 
 
@@ -34359,7 +32898,6 @@ def _report_intelligence_batch_source_ids(
     for filename in (
         "processing_status.jsonl",
         "report_metadata.jsonl",
-        "forecast_claims.jsonl",
         "analytical_footprints.jsonl",
         "metric_candidates.jsonl",
         "tool_gaps.jsonl",
@@ -34377,44 +32915,6 @@ def _report_intelligence_batch_source_ids(
                 if source_id:
                     source_ids.add(source_id)
     return source_ids
-
-
-def _report_intelligence_existing_claim_ids_for_sources(
-    registry_path: Path,
-    source_ids: set[str],
-    *,
-    blockers: list[str],
-) -> set[str]:
-    if not source_ids:
-        return set()
-    path = registry_path / "forecast_claims.jsonl"
-    if not path.exists():
-        return set()
-    claim_ids: set[str] = set()
-    for row in _read_registry_jsonl(
-        path,
-        label=f"{registry_path.name}/forecast_claims.jsonl",
-        blockers=blockers,
-    ):
-        source_id = str(row.get("source_id") or "").strip()
-        claim_id = str(row.get("forecast_claim_id") or "").strip()
-        if source_id in source_ids and claim_id:
-            claim_ids.add(claim_id)
-    return claim_ids
-
-
-def _report_intelligence_merge_replaces_row(
-    row: Mapping[str, Any],
-    *,
-    source_ids: set[str],
-    forecast_claim_ids: set[str],
-) -> bool:
-    source_id = str(row.get("source_id") or "").strip()
-    if source_id and source_id in source_ids:
-        return True
-    forecast_claim_id = str(row.get("forecast_claim_id") or "").strip()
-    return bool(forecast_claim_id and forecast_claim_id in forecast_claim_ids)
-
 
 def merge_report_intelligence_batch_outputs(
     *,
@@ -34440,15 +32940,6 @@ def merge_report_intelligence_batch_outputs(
         if replace_source_ids
         else set()
     )
-    replacement_forecast_claim_ids = (
-        _report_intelligence_existing_claim_ids_for_sources(
-            registry_path,
-            replacement_source_ids,
-            blockers=blockers,
-        )
-        if include_existing_registry and replace_source_ids
-        else set()
-    )
     for filename, key in REPORT_INTELLIGENCE_BATCH_MERGE_JSONL_KEYS.items():
         replace_duplicates = filename in {
             "processing_status.jsonl",
@@ -34468,11 +32959,7 @@ def merge_report_intelligence_batch_outputs(
                 existing_rows = [
                     row
                     for row in existing_rows
-                    if not _report_intelligence_merge_replaces_row(
-                        row,
-                        source_ids=replacement_source_ids,
-                        forecast_claim_ids=replacement_forecast_claim_ids,
-                    )
+                    if str(row.get("source_id") or "").strip() not in replacement_source_ids
                 ]
             if filename == "method_patterns.jsonl":
                 _append_unique_method_patterns(
@@ -34529,7 +33016,6 @@ def merge_report_intelligence_batch_outputs(
         "include_existing_registry": include_existing_registry,
         "replace_source_ids": replace_source_ids,
         "replacement_source_id_count": len(replacement_source_ids),
-        "replacement_forecast_claim_id_count": len(replacement_forecast_claim_ids),
         "outputs": outputs,
         "row_counts": row_counts,
         "input_file_counts": input_file_counts,
@@ -34558,13 +33044,6 @@ def _extract_for_markdown(
         markdown_text,
         publish_date,
     )
-    report_temporal_context = _ensure_mapping(
-        report_context.get("temporal_context")
-    )
-    report_level_horizon = _ensure_mapping(
-        report_temporal_context.get("default_horizon")
-    )
-    all_forecasts: list[dict[str, Any]] = []
     all_footprints: list[dict[str, Any]] = []
     all_metrics: list[dict[str, Any]] = []
     all_methods: list[dict[str, Any]] = []
@@ -34621,23 +33100,6 @@ def _extract_for_markdown(
             run_id=run_id,
             model=model,
         )
-        _append_unique_records(
-            all_forecasts,
-            _normalize_forecast_claims(
-                payload,
-                row,
-                run_id=run_id,
-                model=model,
-                report_id=report_id,
-                chunk_span_id=chunk_span_id,
-                macro_regime_calendar_rows=macro_regime_calendar_rows,
-                report_level_horizon=report_level_horizon,
-                report_temporal_context=report_temporal_context,
-                report_context=report_context,
-                section_context=section_context,
-            ),
-            key="forecast_claim_id",
-        )
         _append_unique_records(all_footprints, footprints, key="footprint_id")
         _append_unique_records(all_metrics, metrics, key="metric_candidate_id")
         _append_unique_method_patterns(all_methods, methods)
@@ -34646,10 +33108,8 @@ def _extract_for_markdown(
     if not chunks:
         llm_status = "blocked"
         blockers.append(f"{row.get('source_id')}: markdown_empty")
-    all_forecasts = _select_report_forecast_claims(all_forecasts)
     return (
         {
-            "forecast_claims": all_forecasts,
             "analytical_footprints": all_footprints,
             "metric_candidates": all_metrics,
             "method_patterns": all_methods,
@@ -34704,17 +33164,6 @@ def run_report_intelligence_derived_refresh(
         label="report_metadata",
         blockers=blockers,
     )
-    forecast_rows = _read_registry_jsonl(
-        registry_dir / "forecast_claims.jsonl",
-        label="forecast_claims",
-        blockers=blockers,
-    )
-    forecast_rows = _refresh_forecast_mapping_governance(
-        forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_regime_calendar_rows=macro_regime_calendar_rows,
-        root_path=root_path,
-    )
     if cfg.derived_scope == "basic":
         if blockers:
             return _blocked_report_intelligence_derived_refresh_result(
@@ -34729,7 +33178,7 @@ def run_report_intelligence_derived_refresh(
             registry_dir=registry_dir,
             run_id=run_id,
             metadata_rows=metadata_rows,
-            forecast_rows=forecast_rows,
+            forecast_rows=[],
             footprint_rows=[],
             metric_rows=[],
             method_rows=[],
@@ -34799,7 +33248,7 @@ def run_report_intelligence_derived_refresh(
         registry_dir=registry_dir,
         run_id=run_id,
         metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
+        forecast_rows=[],
         footprint_rows=footprint_rows,
         metric_rows=metric_rows,
         method_rows=method_rows,
@@ -34830,7 +33279,7 @@ def _refresh_report_intelligence_derived_artifacts(
 ) -> ReportIntelligenceRunResult:
     """Rebuild shared artifacts; absent status rows preserve extraction/review files."""
     if cfg.derived_scope == "basic":
-        rows_by_name = {"forecast_claims": forecast_rows}
+        rows_by_name = {}
         if status_rows is not None:
             rows_by_name.update(
                 {
@@ -35290,9 +33739,6 @@ def _refresh_report_intelligence_derived_artifacts(
             registry_dir / "report_metadata.jsonl"
             if status_rows is None
             else _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
-        ),
-        "forecast_claims": str(
-            _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
         ),
         "analytical_footprints": str(
             _write_jsonl(
@@ -35983,7 +34429,6 @@ def run_report_intelligence_refresh(
                         llm_status=llm_status,
                         chunk_count=chunk_count,
                         truncated_chunks=truncated_chunks,
-                        forecast_claim_count=len(extraction["forecast_claims"]),
                         analytical_footprint_count=len(
                             extraction["analytical_footprints"]
                         ),
@@ -35991,11 +34436,6 @@ def run_report_intelligence_refresh(
                         blocker_count=len(llm_blockers),
                     )
                     row_blockers.extend(llm_blockers)
-                    _append_unique_records(
-                        forecast_rows,
-                        extraction["forecast_claims"],
-                        key="forecast_claim_id",
-                    )
                     _append_unique_records(
                         footprint_rows,
                         extraction["analytical_footprints"],
@@ -36079,12 +34519,6 @@ def run_report_intelligence_refresh(
             blocker_count=len(row_blockers),
         )
 
-    forecast_rows = _refresh_forecast_mapping_governance(
-        forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_regime_calendar_rows=macro_regime_calendar_rows,
-        root_path=root_path,
-    )
     footprint_rows = _refresh_analytical_footprint_indicator_governance(
         footprint_rows,
         metadata_rows=metadata_rows,

@@ -942,20 +942,6 @@ export interface RkeAgentResearchContextResult {
   no_prior_reasons: string[];
 }
 
-export interface RkeMacroAgentPriorsResult {
-  accepted: boolean;
-  schema_version: string;
-  agent_id: string;
-  as_of_date: string;
-  prior_count: number;
-  priors: Array<Record<string, unknown>>;
-  gap_reasons: string[];
-  no_source_prose: boolean;
-  source_policy: string;
-  use_policy: string;
-  production_signal_allowed: boolean;
-}
-
 // --------------------------------------------------------- rke_benchmark (Part 2 E2)
 
 export interface RkeBenchmarkEpisode {
@@ -2492,16 +2478,6 @@ export class BridgeApi {
     max_items?: number;
   }): Promise<RkeAgentResearchContextResult> {
     return this.client.call<RkeAgentResearchContextResult>("rke.agentResearchContext", params);
-  }
-
-  rkeMacroAgentPriors(params?: {
-    root?: string;
-    registry_dir?: string;
-    as_of_date?: string;
-    agent_id?: string;
-    no_source_prose?: boolean;
-  }): Promise<RkeMacroAgentPriorsResult> {
-    return this.client.call<RkeMacroAgentPriorsResult>("rke.macroAgentPriors", params ?? {});
   }
 
   // rke_benchmark.* (Part 2 E2)
