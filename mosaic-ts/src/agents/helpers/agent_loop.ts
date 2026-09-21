@@ -303,10 +303,10 @@ function rkeCallOutcome(output: string, error?: unknown): RkeCallOutcome {
   // Observations of the existing renderer, not a new acceptance gate. Changed or
   // unrecognized output stays unclassified instead of being counted as success.
   if (output.startsWith("## RKE research context for ")) {
-    const hasPrior = /^### Prior \S+$/m.test(output);
+    const hasCase = /^### Research case \S+$/m.test(output);
     const empty = /^No matching RKE context was available for this agent\/request\.$/m.test(output);
-    if (hasPrior && !empty) return "available";
-    if (empty && !hasPrior) return "normal_empty";
+    if (hasCase && !empty) return "available";
+    if (empty && !hasCase) return "normal_empty";
   }
   return "returned_unclassified";
 }
