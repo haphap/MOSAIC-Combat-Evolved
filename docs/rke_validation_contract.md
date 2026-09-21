@@ -102,7 +102,7 @@ identify missing/duplicate KNOT authority and RKE preflight rejection. Other
 invalid requests and execution failures remain separate; transport errors do not
 imply that authorization passed.
 
-The existing RKE renderer is observed for available priors or a normal empty
+The existing RKE renderer is observed for available research cases or a normal empty
 reply. Unrecognized or contradictory output is `returned_unclassified`, not
 counted as available. This classification is diagnostic, not an acceptance gate,
 source receipt, evidence-use assertion, or current-data confirmation.

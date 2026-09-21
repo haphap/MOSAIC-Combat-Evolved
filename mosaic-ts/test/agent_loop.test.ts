@@ -1205,12 +1205,17 @@ describe("agent tool loop helpers", () => {
   });
 
   it.each([
-    ["available", "## RKE research context for macro.dollar\n\n### Prior rke-1"],
+    ["available", "## RKE research context for macro.china\n\n### Research case FCRED-1"],
     [
       "normal_empty",
       "## RKE research context for macro.dollar\n\nNo matching RKE context was available for this agent/request.",
     ],
     ["returned_unclassified", "unexpected reply"],
+    ["returned_unclassified", "## RKE research context for macro.china\n\n### Prior rke-1"],
+    [
+      "returned_unclassified",
+      "## RKE research context for macro.china\n\n### Research case FCRED-1\n\nNo matching RKE context was available for this agent/request.",
+    ],
     [
       "authorization_rejected",
       new RpcError("tools.call", INVALID_PARAMS, "authority missing", {
