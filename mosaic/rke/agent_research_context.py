@@ -24,7 +24,6 @@ RANKING_POLICY_ID = "rke_agent_research_context_rank_v5"
 FORBIDDEN_FIELD_POLICY = "internal_research_cases_only_raw_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
-    "forecast_claims.jsonl",
     "report_metadata.jsonl",
     "analytical_footprints.jsonl",
 )
@@ -461,7 +460,7 @@ def build_rke_agent_research_context(
     sector: str = "",
     max_items: int = 12,
 ) -> dict[str, Any]:
-    """Build authorized internal context from cases, claims, and report metadata."""
+    """Build authorized internal context from complete research cases and metadata."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
     rows, _ = _load_rke_agent_research_rows(registry_path)
@@ -482,7 +481,7 @@ def _load_rke_agent_research_rows(
     # Parse the exact bytes retained for source attestation; file metadata is not identity.
     inputs: dict[str, bytes | None] = {}
     rows: dict[str, list[dict[str, Any]]] = {}
-    for key, filename in zip(("forecasts", "metadata", "footprints"), RKE_AGENT_RESEARCH_INPUT_FILENAMES):
+    for key, filename in zip(("metadata", "footprints"), RKE_AGENT_RESEARCH_INPUT_FILENAMES):
         try:
             content = (registry_path / filename).read_bytes()
         except FileNotFoundError:
@@ -522,7 +521,7 @@ def build_rke_agent_research_materialization(
     )
     metadata_by_report = _index_metadata(rows["metadata"])
     source_by_redacted_claim: dict[str, str] = {}
-    for claim in (*rows["forecasts"], *rows["footprints"]):
+    for claim in rows["footprints"]:
         claim_id = str(claim.get("forecast_claim_id") or claim.get("claim_id") or claim.get("footprint_id") or "")
         if not claim_id:
             continue
@@ -553,7 +552,6 @@ def build_rke_agent_research_materialization(
 def build_rke_agent_research_context_from_rows(
     *,
     agent_id: str,
-    forecasts: Sequence[Mapping[str, Any]] = (),
     footprints: Sequence[Mapping[str, Any]] = (),
     metadata: Sequence[Mapping[str, Any]] = (),
     as_of_date: str = "",
@@ -598,25 +596,6 @@ def build_rke_agent_research_context_from_rows(
         })
         items.append(item)
         source_groups[item["redacted_claim_id"]] = _claim_report_key(footprint)
-    for claim in forecasts:
-        if as_of_date and _claim_as_of_date(claim, metadata_by_report) > as_of_date:
-            continue
-        report_meta = metadata_by_report.get(_claim_report_key(claim), {})
-        if not _claim_matches_request(
-            claim,
-            report_meta,
-            agent_id=normalized_agent,
-            ticker=ticker,
-            sector=sector,
-        ):
-            continue
-        item = _public_claim_item(
-            claim,
-            report_meta=report_meta,
-            agent_id=normalized_agent,
-            available_date=_claim_as_of_date(claim, metadata_by_report),
-        )
-        items.append(item)
     ranked_items = _rank_context_items(items)
     # One source's many sections must not crowd out independent research arguments.
     if source_groups:
@@ -706,43 +685,7 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                           "and identify invalidating observations with current data.",
                           "- Price outcomes do not establish the correctness of this mechanism."])
             continue
-        lines.extend(
-            [
-                "",
-                f"### Prior {item_map.get('redacted_claim_id')}",
-                (
-                    f"- Target: {item_map.get('target_type')} "
-                    f"{item_map.get('target_id')}, "
-                    f"metric_family={item_map.get('metric_family')}"
-                ),
-                f"- Available date: {item_map.get('available_date')}",
-                f"- Expected direction: {item_map.get('expected_direction')}",
-                f"- Horizon: {item_map.get('horizon_bucket')}",
-                (
-                    f"- Historical regime tags: {item_map.get('regime_bucket')} "
-                    f"({', '.join(_ensure_str_list(item_map.get('regime_types'))) or 'none'})"
-                ),
-                f"- Source-stated historical regime: {item_map.get('source_stated_regime_types', [])}",
-                f"- Historical date background: {item_map.get('historical_date_regime_types', [])}",
-                (
-                    "- Current data required: "
-                    f"{str(item_map.get('current_data_required') is True).lower()}; "
-                    "fields="
-                    f"{', '.join(_ensure_str_list(item_map.get('current_data_required_fields'))) or 'none'}"
-                ),
-                (
-                    "- Prior guard: "
-                    f"use_policy={item_map.get('use_policy')}; "
-                    f"actionability_guard={item_map.get('actionability_guard')}; "
-                    "production_signal_allowed="
-                    f"{str(item_map.get('production_signal_allowed')).lower()}"
-                ),
-            ]
-        )
-        if item_map.get("ticker"):
-            lines.append(f"- Ticker: {item_map.get('ticker')}")
-        if item_map.get("style_fit"):
-            lines.append(f"- Style fit: {item_map.get('style_fit')}")
+
     return "\n".join(lines)
 
 
@@ -836,53 +779,6 @@ def _claim_matches_request(
             "superinvestor": SUPERINVESTOR_AGENTS,
             "decision": DECISION_AGENTS,
         }.get(layer, ())
-    if ticker:
-        wanted = ticker.strip().upper()
-        claim_ticker = str(
-            report_meta.get("ts_code")
-            or _ensure_mapping(claim.get("target")).get("target_id")
-            or ""
-        ).upper()
-        if claim_ticker != wanted:
-            return False
-    if sector:
-        sector_text = _combined_text(report_meta.get("sector"), claim.get("target"))
-        requested_direction = sector.strip()
-        direction_agent = _sector_agent_for_direction(requested_direction)
-        if direction_agent:
-            if agent_id != direction_agent:
-                return False
-            direction_keywords = SECTOR_DIRECTION_KEYWORDS.get(
-                (direction_agent.removeprefix("sector."), requested_direction), ()
-            )
-            if not direction_keywords:
-                return False
-            if not any(
-                _sector_keyword_matches(keyword, sector_text)
-                for keyword in direction_keywords
-            ):
-                return False
-            return True
-        elif (
-            agent_id.startswith("sector.")
-            and agent_id != "sector.relationship_mapper"
-            and requested_direction.isascii()
-        ):
-            return False
-        elif requested_direction.lower() not in sector_text.lower():
-            return False
-    if agent_id.startswith("macro."):
-        return _is_macro_claim(claim, report_meta) and agent_id in _macro_agent_candidates(claim)
-    if agent_id == "sector.relationship_mapper":
-        return _claim_domain(claim, report_meta) in {"stock", "industry"}
-    if agent_id.startswith("sector."):
-        return _sector_agent_for_claim(claim, report_meta) == agent_id
-    if agent_id.startswith("superinvestor."):
-        if str(report_meta.get("report_type") or "") != "个股研报":
-            return False
-        return _style_fit_score(agent_id, claim, report_meta) > 0
-    if agent_id.startswith("decision."):
-        return _claim_domain(claim, report_meta) in {"stock", "industry", "macro"}
     return False
 
 

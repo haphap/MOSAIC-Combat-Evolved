@@ -67,9 +67,12 @@ def test_rke_shadow_migration_rejects_old_identity_alias():
 
 
 def test_rke_shadow_context_routes_fields_without_relabeling_legacy_identity():
-    forecasts = [
+    footprints = [
         {
-            "forecast_claim_id": "FC-FX-ROUTE",
+            "footprint_id": "FC-FX-ROUTE",
+            "source_id": "SRC-FX",
+            "source_span_ids": ["PRIVATE"],
+            "research_case": {"question": "Does tighter funding lift the dollar?", "reasoning_chain": ["Funding costs rise", "Demand for dollars increases"]},
             "report_id": "RPT-FX-ROUTE",
             "target": {
                 "target_type": "macro_series",
@@ -82,6 +85,9 @@ def test_rke_shadow_context_routes_fields_without_relabeling_legacy_identity():
     metadata = [
         {
             "report_id": "RPT-FX-ROUTE",
+            "source_id": "SRC-FX",
+            "license_class": "operator_approved_internal_research_use",
+            "derived_claim_storage_allowed": True,
             "report_type": "宏观策略",
             "publish_datetime": "2026-06-01T00:00:00+08:00",
         }
@@ -90,13 +96,13 @@ def test_rke_shadow_context_routes_fields_without_relabeling_legacy_identity():
     current = build_rke_agent_research_context_from_rows(
         agent_id="us_financial_conditions",
         layer="macro",
-        forecasts=forecasts,
+        footprints=footprints,
         metadata=metadata,
     )
     legacy = build_rke_agent_research_context_from_rows(
         agent_id="dollar",
         layer="macro",
-        forecasts=forecasts,
+        footprints=footprints,
         metadata=metadata,
     )
 

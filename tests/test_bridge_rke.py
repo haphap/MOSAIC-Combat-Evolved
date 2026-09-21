@@ -24,10 +24,13 @@ def test_rke_agent_research_context_bridge_returns_redacted_ranked_context(tmp_p
     registry = tmp_path / "registry" / "report_intelligence"
     registry.mkdir(parents=True)
     _write_jsonl(
-        registry / "forecast_claims.jsonl",
+        registry / "analytical_footprints.jsonl",
         [
             {
-                "forecast_claim_id": "FC-BRIDGE-1",
+                "footprint_id": "FC-BRIDGE-1",
+                "source_id": "SRC-BRIDGE",
+                "source_span_ids": ["PRIVATE"],
+                "research_case": {"question": "Can margins recover?", "reasoning_chain": ["Inventory falls", "Discounting slows"]},
                 "report_id": "RPT-BRIDGE-1",
                 "claim_text": "private source prose",
                 "target": {"target_type": "stock", "target_id": "600519.SH"},
@@ -41,6 +44,9 @@ def test_rke_agent_research_context_bridge_returns_redacted_ranked_context(tmp_p
         [
             {
                 "report_id": "RPT-BRIDGE-1",
+                "source_id": "SRC-BRIDGE",
+                "license_class": "operator_approved_internal_research_use",
+                "derived_claim_storage_allowed": True,
                 "report_type": "个股研报",
                 "ts_code": "600519.SH",
                 "publish_datetime": "2026-01-01T00:00:00+08:00",
@@ -67,32 +73,5 @@ def test_rke_agent_research_context_bridge_returns_redacted_ranked_context(tmp_p
     assert "private source prose" not in json.dumps(payload, ensure_ascii=False)
 
 
-def test_rke_macro_agent_priors_bridge_uses_compatibility_export(tmp_path):
-    registry = tmp_path / "registry" / "report_intelligence"
-    registry.mkdir(parents=True)
-    _write_jsonl(
-        registry / "macro_agent_research_priors.jsonl",
-        [
-            {
-                "schema_version": "macro_agent_research_prior_v1",
-                "agent_id": "macro.dollar",
-                "as_of_date": "2026-06-18",
-                "private_text_included": False,
-                "production_signal_allowed": False,
-            }
-        ],
-    )
-
-    payload = dispatch(
-        "rke.macroAgentPriors",
-        {
-            "root": str(tmp_path),
-            "agent_id": "macro.dollar",
-            "as_of_date": "2026-07-01",
-        },
-    )
-
-    assert payload["accepted"] is True
-    assert payload["agent_id"] == "macro.dollar"
-    assert payload["prior_count"] == 1
-    assert payload["production_signal_allowed"] is False
+def test_standalone_macro_prior_export_is_removed():
+    assert get_handler("rke.macroAgentPriors") is None

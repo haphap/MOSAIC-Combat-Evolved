@@ -27,10 +27,13 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 def _write_agent_context_registry(registry: Path) -> None:
     _write_jsonl(
-        registry / "forecast_claims.jsonl",
+        registry / "analytical_footprints.jsonl",
         [
             {
-                "forecast_claim_id": "FC-ENV",
+                "footprint_id": "FC-ENV",
+                "source_id": "SRC-ENV",
+                "source_span_ids": ["PRIVATE"],
+                "research_case": {"question": "How does liquidity affect funding?", "reasoning_chain": ["Liquidity contracts", "Funding costs rise"]},
                 "report_id": "RPT-ENV",
                 "target": {"target_type": "macro_series", "target_id": "USDCNY"},
                 "direction": "positive",
@@ -43,6 +46,8 @@ def _write_agent_context_registry(registry: Path) -> None:
             {
                 "report_id": "RPT-ENV",
                 "source_id": "SRC-ENV",
+                "license_class": "operator_approved_internal_research_use",
+                "derived_claim_storage_allowed": True,
                 "publish_datetime": "2026-01-01T00:00:00+08:00",
             }
         ],
@@ -137,7 +142,7 @@ def test_fingerprint_manifest_is_stable_and_indexes_claims(tmp_path):
     assert first[0]["source_hash"] == "sha256:source"
     assert first[0]["pdf_sha256"] == "sha256:pdf"
     assert first[0]["markdown_sha256"] == "sha256:md"
-    assert first[0]["forecast_claim_index"][0]["forecast_claim_id"] == "FC-1"
+    assert "forecast_claim_index" not in first[0]
     assert first[0]["footprint_index"][0]["footprint_id"] == "AFP-1"
 
 
@@ -168,22 +173,24 @@ def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
     out = tmp_path / "MOSAIC-Registries"
     stale = out / "registry/report_intelligence/tool_gaps.jsonl"
     _write_jsonl(stale, [{"tool_gap_id": "STALE"}])
+    _write_jsonl(out / "registry/report_intelligence/forecast_claims.jsonl", [{"forecast_claim_id": "OLD"}])
     result = export_private_registries(root=tmp_path, output_dir=out)
 
     assert result["accepted"] is True
-    assert (out / "registry/report_intelligence/forecast_claims.jsonl").exists()
+    assert not (out / "registry/report_intelligence/forecast_claims.jsonl").exists()
     assert (out / "registry/report_intelligence/report_fingerprint_manifest.jsonl").exists()
     assert (out / "registry/sources/tushare_research_reports.jsonl").exists()
     assert not (out / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf").exists()
     assert not stale.exists()
     assert not (out / "registry/report_intelligence/retired_proposals").exists()
     assert not (out / "registry/report_intelligence/data_acquisition_proposals.jsonl").exists()
-    assert result["removed_files"] == [
-        "registry/report_intelligence/tool_gaps.jsonl"
-    ]
+    assert set(result["removed_files"]) == {
+        "registry/report_intelligence/forecast_claims.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
+    }
     manifest = json.loads((out / "registry_manifest.json").read_text(encoding="utf-8"))
     assert manifest["cache_manifest"]["included"] is False
-    assert manifest["forecast_claim_count"] == 1
+    assert manifest["forecast_claim_count"] == 0
 
     subprocess.run(["git", "init", "-q"], cwd=out, check=True, capture_output=True)
     subprocess.run(
@@ -251,10 +258,10 @@ def test_export_private_registries_explicit_staging_overrides_repo_env(
 
     assert result["accepted"] is True
     assert result["source_repo"] == str(staging_root.resolve())
-    exported = published_repo / "registry/report_intelligence/forecast_claims.jsonl"
+    exported = published_repo / "registry/report_intelligence/report_metadata.jsonl"
     assert json.loads(exported.read_text(encoding="utf-8"))[
-        "forecast_claim_id"
-    ] == "FC-STAGING"
+        "report_id"
+    ] == "RPT-STAGING"
 
 
 def test_export_private_registries_rejects_same_source_and_output(tmp_path):
@@ -330,10 +337,10 @@ def test_hydrate_private_registries_restores_clean_snapshot(tmp_path):
 
     assert result["accepted"] is True
     assert not stale.exists()
-    hydrated = staging_root / "registry/report_intelligence/forecast_claims.jsonl"
+    hydrated = staging_root / "registry/report_intelligence/report_metadata.jsonl"
     assert json.loads(hydrated.read_text(encoding="utf-8"))[
-        "forecast_claim_id"
-    ] == "FC-HYDRATE"
+        "report_id"
+    ] == "RPT-HYDRATE"
 
     unknown = published_repo / "registry/report_intelligence/future_artifact.jsonl"
     _write_jsonl(unknown, [{"future_artifact_id": "FUTURE-1"}])

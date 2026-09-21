@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from mosaic.rke.agent_research_context import build_rke_agent_research_context
-from mosaic.rke.report_intelligence import export_macro_agent_research_priors
 
 from ..protocol import INVALID_PARAMS, RpcError
 from ..registry import method
@@ -46,19 +45,4 @@ def rke_agent_research_context(params: dict[str, Any]) -> dict[str, Any]:
         ticker=_optional_str(params, "ticker"),
         sector=_optional_str(params, "sector"),
         max_items=_positive_int(params, "max_items", 12),
-    )
-
-
-@method("rke.macroAgentPriors")
-def rke_macro_agent_priors(params: dict[str, Any]) -> dict[str, Any]:
-    """Return the macro-agent-prior compatibility view."""
-    no_source_prose = params.get("no_source_prose", True)
-    if not isinstance(no_source_prose, bool):
-        raise RpcError(INVALID_PARAMS, "'no_source_prose' must be a boolean")
-    return export_macro_agent_research_priors(
-        root=_optional_str(params, "root", "."),
-        registry_dir=_optional_str(params, "registry_dir"),
-        as_of_date=_optional_str(params, "as_of_date"),
-        agent_id=_optional_str(params, "agent_id"),
-        no_source_prose=no_source_prose,
     )

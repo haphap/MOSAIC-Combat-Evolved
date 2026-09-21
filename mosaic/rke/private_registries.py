@@ -226,11 +226,6 @@ def build_report_fingerprint_manifest(registry_dir: str | Path) -> list[dict[str
         for row in _read_jsonl(registry_path / "processing_status.jsonl")
         if str(row.get("source_id") or "").strip()
     }
-    claims_by_report: dict[str, list[dict[str, Any]]] = {}
-    for claim in _read_jsonl(registry_path / "forecast_claims.jsonl"):
-        report_id = str(claim.get("report_id") or "").strip()
-        if report_id:
-            claims_by_report.setdefault(report_id, []).append(claim)
     footprints_by_report: dict[str, list[dict[str, Any]]] = {}
     for footprint in _read_jsonl(registry_path / "analytical_footprints.jsonl"):
         report_id = str(footprint.get("report_id") or "").strip()
@@ -244,16 +239,6 @@ def build_report_fingerprint_manifest(registry_dir: str | Path) -> list[dict[str
         merged = {**source, **meta, "source_id": source_id}
         report_id = _report_id(merged)
         status = status_by_source.get(source_id, {})
-        claim_index = [
-            {
-                "forecast_claim_id": str(claim.get("forecast_claim_id") or ""),
-                "source_id": source_id,
-                "report_id": report_id,
-                "source_span_ids": _source_span_ids(claim),
-            }
-            for claim in claims_by_report.get(report_id, [])
-            if str(claim.get("forecast_claim_id") or "").strip()
-        ]
         footprint_index = [
             {
                 "footprint_id": str(footprint.get("footprint_id") or ""),
@@ -280,11 +265,7 @@ def build_report_fingerprint_manifest(registry_dir: str | Path) -> list[dict[str
                     or (meta.get("extraction") or {}).get("llm_status")
                     or ""
                 ),
-                "forecast_claim_ids": [
-                    item["forecast_claim_id"] for item in claim_index
-                ],
                 "footprint_ids": [item["footprint_id"] for item in footprint_index],
-                "forecast_claim_index": claim_index,
                 "footprint_index": footprint_index,
             }
         )
@@ -473,6 +454,8 @@ def export_private_registries(
         blockers.append("private registry source and output repo must differ")
     for directory in {source_repo, output_path}:
         for relative in sorted(RETIRED_PRIVATE_REGISTRY_FILES):
+            if relative.endswith("/forecast_claims.jsonl"):
+                continue
             if (directory / relative).exists():
                 blockers.append(f"{directory / relative}: retired artifact; migrate tool gap reviews before export")
     if blockers:
@@ -490,6 +473,10 @@ def export_private_registries(
             "blockers": blockers,
             "blocker_count": len(blockers),
         }
+    retired_forecasts = output_path / "registry/report_intelligence/forecast_claims.jsonl"
+    if retired_forecasts.is_file():
+        retired_forecasts.unlink()
+        removed.append(retired_forecasts)
     if registry_path.exists():
         write_report_fingerprint_manifest(registry_path)
     for relative in _managed_private_registry_paths():
@@ -725,7 +712,6 @@ def registries_preflight(
         blockers.append("registry_manifest.json missing")
     for relative in (
         "report_metadata.jsonl",
-        "forecast_claims.jsonl",
         "analytical_footprints.jsonl",
         "processing_status.jsonl",
         FINGERPRINT_MANIFEST_NAME,
@@ -746,7 +732,6 @@ def registries_preflight(
                     (registry_relative / path).as_posix()
                     for path in (
                         "report_metadata.jsonl",
-                        "forecast_claims.jsonl",
                         "analytical_footprints.jsonl",
                         "processing_status.jsonl",
                         FINGERPRINT_MANIFEST_NAME,

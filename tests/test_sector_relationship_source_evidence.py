@@ -222,14 +222,18 @@ def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
                 "report_id": "RPT-1",
                 "publish_datetime": "2026-06-30T15:00:00+08:00",
                 "accessible_datetime": "2026-07-01T09:00:00+08:00",
+                "license_class": "operator_approved_internal_research_use",
+                "derived_claim_storage_allowed": True,
             }
         )
         + "\n",
         encoding="utf-8",
     )
     authority, store, ledger = _authority(tmp_path)
-    (registry_dir / "forecast_claims.jsonl").write_text(json.dumps({
-        "forecast_claim_id": "FC-1", "report_id": "RPT-1", "source_id": "SRC-TSRR-1",
+    (registry_dir / "analytical_footprints.jsonl").write_text(json.dumps({
+        "footprint_id": "FC-1", "report_id": "RPT-1", "source_id": "SRC-TSRR-1",
+        "source_span_ids": ["PRIVATE"],
+        "research_case": {"question": "Can bank margins recover?", "reasoning_chain": ["Funding costs fall", "Net interest margins recover"]},
         "target": {"target_type": "industry", "target_id": "银行"},
         "metric_proxy_mapping": ["industry_etf_forward_return"], "direction": "positive",
     }) + "\n", encoding="utf-8")
@@ -358,7 +362,7 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_basic_inputs(
     assert store.resolve(descriptor) == receipts
 
 
-@pytest.mark.parametrize("missing_filename", ["forecast_claims.jsonl", "report_metadata.jsonl"])
+@pytest.mark.parametrize("missing_filename", ["analytical_footprints.jsonl", "report_metadata.jsonl"])
 def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
     tmp_path: Path, missing_filename: str,
 ) -> None:
@@ -418,7 +422,7 @@ def test_rke_empty_proof_hashes_exact_input_bytes_despite_later_file_updates(tmp
 
     def build_then_change_inputs(**kwargs):
         result = build(**kwargs)
-        (registry_dir / "forecast_claims.jsonl").write_text("invalid subsequent input")
+        (registry_dir / "analytical_footprints.jsonl").write_text("invalid subsequent input")
         return result
 
     monkeypatch.setattr(source_evidence_module, "build_rke_agent_research_materialization", build_then_change_inputs)

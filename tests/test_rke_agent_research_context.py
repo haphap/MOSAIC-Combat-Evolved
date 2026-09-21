@@ -17,7 +17,6 @@ from mosaic.rke.agent_research_context import (
     format_rke_agent_research_context,
     normalize_agent_id,
 )
-from mosaic.rke.cli import main
 from mosaic.agents.utils import rke_research_tools
 
 
@@ -26,133 +25,6 @@ def _write_jsonl(path, rows):
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
         encoding="utf-8",
     )
-
-
-def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_context(
-    tmp_path,
-):
-    registry_dir = tmp_path / "registry/report_intelligence"
-    registry_dir.mkdir(parents=True)
-    _write_jsonl(
-        registry_dir / "forecast_claims.jsonl",
-        [
-            {
-                "forecast_claim_id": "FC-SELECTED",
-                "report_id": "RPT-SELECTED",
-                "source_id": "SRC-SELECTED",
-                "target": {"target_type": "industry", "target_id": "银行"},
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "direction": "positive",
-            },
-            {
-                "forecast_claim_id": "FC-OTHER",
-                "report_id": "RPT-OTHER",
-                "source_id": "SRC-OTHER",
-                "target": {"target_type": "industry", "target_id": "半导体"},
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "direction": "negative",
-            },
-        ],
-    )
-    _write_jsonl(
-        registry_dir / "report_metadata.jsonl",
-        [
-            {
-                "report_id": "RPT-SELECTED",
-                "source_id": "SRC-SELECTED",
-                "report_type": "行业研报",
-                "sector": "银行",
-                "publish_datetime": "2026-07-01T09:00:00+08:00",
-            },
-            {
-                "report_id": "RPT-OTHER",
-                "source_id": "SRC-OTHER",
-                "report_type": "行业研报",
-                "sector": "半导体",
-                "publish_datetime": "2026-07-01T09:00:00+08:00",
-            },
-        ],
-    )
-
-    materialization = build_rke_agent_research_materialization(
-        root=tmp_path,
-        agent_id="financials",
-        layer="sector",
-        sector="银行",
-        as_of_date="2026-07-09",
-        max_items=12,
-    )
-
-    for filename in (
-        "report_outcome_labels.jsonl", "source_performance_profiles.jsonl",
-        "viewpoint_performance_profiles.jsonl", "analysis_recipes.jsonl",
-        "tool_gaps.jsonl", "weighted_research_contexts.jsonl",
-        "stock_context_snapshots.jsonl", "industry_context_snapshots.jsonl",
-    ):
-        (registry_dir / filename).write_text("not valid json", encoding="utf-8")
-    query = dict(
-        root=tmp_path, agent_id="financials", layer="sector", sector="银行",
-        as_of_date="2026-07-09", max_items=12,
-    )
-    assert build_rke_agent_research_materialization(**query) == materialization
-    assert build_rke_agent_research_context(**query) == materialization["context"]
-
-    assert set(materialization) == {"context", "source_ids", "input_bytes", "metadata"}
-    assert materialization["source_ids"] == ("SRC-SELECTED",)
-    assert materialization["context"]["summary"]["item_count"] == 1
-    assert "SRC-SELECTED" not in json.dumps(
-        materialization["context"], ensure_ascii=False
-    )
-
-
-@pytest.mark.parametrize(
-    ("agent_id", "direction_id", "sector_label", "expected_count"),
-    [
-        ("agriculture", "livestock_aquaculture", "农牧饲渔", 1),
-        ("biotech", "biological_products", "生物制品", 1),
-        ("consumer", "food_beverage", "食品饮料", 1),
-        ("energy", "coal", "煤炭行业", 1),
-        ("financials", "banking", "银行", 1),
-        ("industrials", "machinery", "通用设备", 1),
-        ("real_estate_construction", "real_estate", "房地产开发", 1),
-        ("semiconductor", "semiconductor_equipment_materials", "半导体", 1),
-        ("technology", "computer", "计算机设备", 1),
-        ("consumer", "food_beverage", "家电", 0),
-        ("energy", "coal", "光伏", 0),
-    ],
-)
-def test_sector_direction_id_matches_existing_chinese_keyword_authority(
-    agent_id, direction_id, sector_label, expected_count
-):
-    context = build_rke_agent_research_context_from_rows(
-        agent_id=agent_id,
-        layer="sector",
-        sector=direction_id,
-        as_of_date="2026-07-09",
-        max_items=12,
-        forecasts=[
-            {
-                "forecast_claim_id": f"FC-{agent_id}",
-                "report_id": f"RPT-{agent_id}",
-                "source_id": f"SRC-{agent_id}",
-                "target": {"target_type": "industry", "target_id": sector_label},
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": f"RPT-{agent_id}",
-                "source_id": f"SRC-{agent_id}",
-                "report_type": "行业研报",
-                "sector": sector_label,
-                "publish_datetime": "2026-07-01T09:00:00+08:00",
-            }
-        ],
-    )
-
-    assert context["agent_id"] == f"sector.{agent_id}"
-    assert context["summary"]["item_count"] == expected_count
 
 
 def test_sector_direction_keyword_authority_closes_frozen_directions():
@@ -166,470 +38,16 @@ def test_sector_direction_keyword_authority_closes_frozen_directions():
     assert set(SECTOR_DIRECTION_KEYWORDS) == expected_keys
 
 
-def test_relationship_mapper_selects_matching_stock_sector_claim() -> None:
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="relationship_mapper",
-        layer="relationship",
-        ticker="000001.SZ",
-        sector="sector-energy",
-        as_of_date="2026-07-17",
-        max_items=12,
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-RELATIONSHIP",
-                "report_id": "RPT-RELATIONSHIP",
-                "source_id": "SRC-RELATIONSHIP",
-                "target": {"target_type": "stock", "target_id": "000001.SZ"},
-                "metric_proxy_mapping": ["stock_forward_return"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": "RPT-RELATIONSHIP",
-                "source_id": "SRC-RELATIONSHIP",
-                "report_type": "个股研报",
-                "ts_code": "000001.SZ",
-                "sector": "sector-energy",
-                "publish_datetime": "2026-07-16T09:00:00+08:00",
-            }
-        ],
-    )
-
-    assert context["agent_id"] == "sector.relationship_mapper"
-    assert context["summary"]["item_count"] == 1
-
-
-def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_path):
-    registry_dir = tmp_path / "registry/report_intelligence"
-    registry_dir.mkdir(parents=True)
-    _write_jsonl(
-        registry_dir / "forecast_claims.jsonl",
-        [
-            {
-                "forecast_claim_id": "FC-STOCK-CLI",
-                "report_id": "RPT-STOCK-CLI",
-                "target": {"target_type": "stock", "target_id": "600519.SH"},
-                "metric_proxy_mapping": ["stock_forward_return"],
-                "direction": "positive",
-            },
-            {
-                "forecast_claim_id": "FC-INDUSTRY-CLI",
-                "report_id": "RPT-INDUSTRY-CLI",
-                "target": {"target_type": "industry", "target_id": "半导体"},
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "direction": "positive",
-            },
-            {
-                "forecast_claim_id": "FC-MACRO-CLI",
-                "report_id": "RPT-MACRO-CLI",
-                "target": {
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                },
-                "direction": "positive",
-            },
-        ],
-    )
-    _write_jsonl(
-        registry_dir / "report_metadata.jsonl",
-        [
-            {
-                "report_id": "RPT-STOCK-CLI",
-                "report_type": "个股研报",
-                "ts_code": "600519.SH",
-                "publish_datetime": "2026-01-01T00:00:00+08:00",
-            },
-            {
-                "report_id": "RPT-INDUSTRY-CLI",
-                "report_type": "行业研报",
-                "sector": "半导体",
-                "publish_datetime": "2026-01-02T00:00:00+08:00",
-            },
-            {
-                "report_id": "RPT-MACRO-CLI",
-                "report_type": "宏观策略",
-                "publish_datetime": "2026-01-03T00:00:00+08:00",
-            },
-        ],
-    )
-
-    exit_code = main(
-        (
-            "export-rke-agent-context",
-            "--root",
-            str(tmp_path),
-            "--agent-id",
-            "cio",
-            "--layer",
-            "decision",
-            "--as-of-date",
-            "2026-02-01",
-        )
-    )
-
-    assert exit_code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["agent_id"] == "decision.cio"
-    assert payload["production_signal_allowed"] is False
-    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
-    assert payload["summary"]["item_count"] == 3
-    assert {item["domain"] for item in payload["context_items"]} == {
-        "stock",
-        "industry",
-        "macro",
-    }
-    assert "claim_text" not in json.dumps(payload, ensure_ascii=False)
-
-
-def test_macro_context_redacts_private_claim_text_and_maps_agent():
-    forecasts = [
-        {
-            "forecast_claim_id": "FC-PRIVATE-1",
-            "claim_id": "CLAIM-PRIVATE-1",
-            "claim_text": "未来1-3个月人民币仍有贬值压力，USD/CNY中枢可能上移。",
-            "source_span_ids": ["SRC-PRIVATE:p4:chunk2"],
-            "report_id": "RPT-1",
-            "source_id": "SRC-1",
-            "target": {
-                "target_type": "macro_series",
-                "target_id": "USDCNY",
-                "metric_family": "fx_rate",
-            },
-            "direction": "positive",
-            "horizon": {"bucket": "medium", "source_text": "1-3个月"},
-            "forecast_testability": "direct_macro_series_observable",
-            "failure_modes": [{"text": "央行逆周期调节可能缓解贬值压力。"}],
-            "claim_regime_trace": {
-                "macro": {
-                    "macro.dollar": {
-                        "regime_types": ["fx_usd_cycle"],
-                        "source_text_regime_types": ["fx_usd_cycle"],
-                    }
-                }
-            },
-        }
-    ]
-
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="dollar",
-        layer="macro",
-        as_of_date="2026-06-27",
-        forecasts=forecasts,
-        metadata=[
-            {
-                "report_id": "RPT-1",
-                "source_id": "SRC-1",
-                "publish_datetime": "2026-06-20T00:00:00+08:00",
-                "institution_id": "INST-1",
-                "author_ids": ["AUTH-1"],
-            }
-        ],
-    )
-
-    assert context["agent_id"] == "macro.dollar"
-    assert context["research_only"] is True
-    assert context["production_signal_allowed"] is False
-    assert context["actionability"] == SAFE_ACTIONABILITY
-    item = context["context_items"][0]
-    assert item["redacted_claim_id"].startswith("FCRED-")
-    assert item["target_id"] == "USDCNY"
-    assert item["metric_family"] == "fx_rate"
-    assert item["regime_types"] == ["fx_usd_cycle"]
-
-    payload = json.dumps(context, ensure_ascii=False)
-    assert "claim_text" not in payload
-    assert "source_span_ids" not in payload
-    assert "未来1-3个月人民币" not in payload
-    assert "央行逆周期调节" not in payload
-
-
-def test_superinvestor_context_filters_by_style_fit():
-    forecasts = [
-        {
-            "forecast_claim_id": "FC-STOCK-1",
-            "report_id": "RPT-STOCK-1",
-            "target": {
-                "target_type": "stock",
-                "target_id": "600519.SH",
-            },
-            "metric_proxy_mapping": ["quality", "roe", "free_cash_flow"],
-            "direction": "positive",
-            "horizon": {"bucket": "long_horizon"},
-        }
-    ]
-    metadata = [
-        {
-            "report_id": "RPT-STOCK-1",
-            "report_type": "个股研报",
-            "sector": "食品饮料",
-            "ts_code": "600519.SH",
-        }
-    ]
-
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="munger",
-        layer="superinvestor",
-        forecasts=forecasts,
-        metadata=metadata,
-    )
-
-    assert context["agent_id"] == "superinvestor.munger"
-    item = context["context_items"][0]
-    assert item["ticker"] == "600519.SH"
-    assert item["style_fit"] in {"medium", "high"}
-
-
-def test_superinvestor_context_uses_role_filtered_reason_codes():
-    forecasts = [
-        {
-            "forecast_claim_id": "FC-MUNGER",
-            "report_id": "RPT-MUNGER",
-            "target": {"target_type": "stock", "target_id": "600519.SH"},
-            "metric_proxy_mapping": ["moat", "roic", "predictability"],
-            "direction": "positive",
-        },
-        {
-            "forecast_claim_id": "FC-BURRY",
-            "report_id": "RPT-BURRY",
-            "target": {"target_type": "stock", "target_id": "000001.SZ"},
-            "metric_proxy_mapping": ["deep_value", "fcf_yield", "balance_sheet"],
-            "direction": "positive",
-        },
-        {
-            "forecast_claim_id": "FC-ACKMAN",
-            "report_id": "RPT-ACKMAN",
-            "target": {"target_type": "stock", "target_id": "600036.SH"},
-            "metric_proxy_mapping": ["free_cash_flow", "earnings_growth", "dividend"],
-            "direction": "positive",
-        },
-        {
-            "forecast_claim_id": "FC-DRUCK",
-            "report_id": "RPT-DRUCK",
-            "target": {"target_type": "stock", "target_id": "601899.SH"},
-            "metric_proxy_mapping": ["momentum", "policy", "cycle"],
-            "direction": "positive",
-        },
-    ]
-    metadata = [
-        {"report_id": row["report_id"], "report_type": "个股研报"}
-        for row in forecasts
-    ]
-    expected_codes = {
-        "munger": "role_filter_quality_moat_cashflow",
-        "burry": "role_filter_value_contrarian_balance_sheet",
-        "ackman": "role_filter_quality_catalyst_capital_allocation",
-        "druckenmiller": "role_filter_cycle_trend_policy_momentum",
-    }
-
-    for agent, code in expected_codes.items():
-        context = build_rke_agent_research_context_from_rows(
-            agent_id=agent,
-            layer="superinvestor",
-            forecasts=forecasts,
-            metadata=metadata,
-        )
-
-        reason_codes = {
-            reason
-            for item in context["context_items"]
-            for reason in item["role_filter_reason_codes"]
-        }
-        assert code in reason_codes
-        assert all(
-            item["domain"] == "stock" and item["use_policy"].startswith("shadow_")
-            for item in context["context_items"]
-        )
-
-
-def test_superinvestor_runtime_preflight_blocks_generic_unfiltered_context():
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="munger",
-        layer="superinvestor",
-        as_of_date="2026-06-27",
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-MUNGER-RUNTIME",
-                "report_id": "RPT-MUNGER-RUNTIME",
-                "target": {"target_type": "stock", "target_id": "600519.SH"},
-                "metric_proxy_mapping": ["moat", "roic", "free_cash_flow"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": "RPT-MUNGER-RUNTIME",
-                "report_type": "个股研报",
-                "ts_code": "600519.SH",
-            }
-        ],
-    )
-    item = context["context_items"][0]
-    item["role_filter_reason_codes"] = []
-
-
-    error = pytest.raises(
-        DataVendorUnavailable, rke_research_tools.format_rke_runtime_context, context
-    )
-
-    assert "superinvestor_role_filter_missing" in str(error.value)
-
-
 def test_removed_superinvestor_gets_explicit_no_prior_reason():
     context = build_rke_agent_research_context_from_rows(
         agent_id="aschenbrenner",
         layer="superinvestor",
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-REMOVED",
-                "report_id": "RPT-REMOVED",
-                "target": {"target_type": "stock", "target_id": "600519.SH"},
-                "metric_proxy_mapping": ["moat", "roic"],
-                "direction": "positive",
-            }
-        ],
+
         metadata=[{"report_id": "RPT-REMOVED", "report_type": "个股研报"}],
     )
 
     assert context["context_items"] == []
     assert context["summary"]["no_prior_reason"] == "unsupported_superinvestor_agent"
-
-
-def test_context_ranks_all_matches_before_truncating():
-    forecasts = [
-        {
-            "forecast_claim_id": "FC-LOW",
-            "report_id": "RPT-LOW",
-            "target": {
-                "target_type": "macro_series",
-                "target_id": "USDCNY_LOW",
-                "metric_family": "fx_rate",
-            },
-            "direction": "positive",
-        },
-        {
-            "forecast_claim_id": "FC-HIGH",
-            "report_id": "RPT-HIGH",
-            "target": {
-                "target_type": "macro_series",
-                "target_id": "USDCNY_HIGH",
-                "metric_family": "fx_rate",
-            },
-            "direction": "positive",
-        },
-    ]
-
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="dollar",
-        layer="macro",
-        max_items=1,
-        forecasts=forecasts,
-        metadata=[
-            {
-                "report_id": "RPT-LOW",
-                "report_type": "宏观策略",
-                "publish_datetime": "2026-06-01T00:00:00+08:00",
-            },
-            {
-                "report_id": "RPT-HIGH",
-                "report_type": "宏观策略",
-                "publish_datetime": "2026-06-02T00:00:00+08:00",
-            },
-        ],
-    )
-
-    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
-    assert context["summary"]["matched_item_count"] == 2
-    assert context["summary"]["truncated_item_count"] == 1
-    item = context["context_items"][0]
-    assert item["target_id"] == "USDCNY_HIGH"
-    assert item["retrieval_rank"] == 1
-    assert item["current_data_required"] is True
-    assert item["production_signal_allowed"] is False
-
-
-def test_decision_context_reads_redacted_prior_with_current_data_guard():
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="cio",
-        layer="decision",
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-STOCK-CIO",
-                "report_id": "RPT-STOCK-CIO",
-                "target": {"target_type": "stock", "target_id": "600519.SH"},
-                "metric_proxy_mapping": ["stock_forward_return"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": "RPT-STOCK-CIO",
-                "report_type": "个股研报",
-                "sector": "食品饮料",
-                "ts_code": "600519.SH",
-            }
-        ],
-    )
-
-    item = context["context_items"][0]
-    assert context["agent_id"] == "decision.cio"
-    assert item["domain"] == "stock"
-    assert item["use_policy"] == "shadow_research_prior_only_not_current_signal"
-    assert item["actionability_guard"] == SAFE_ACTIONABILITY
-    assert "portfolio_context" in item["current_data_required_fields"]
-
-
-def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
-    consumer = build_rke_agent_research_context_from_rows(
-        agent_id="consumer",
-        layer="sector",
-        ticker="600025.SH",
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-RETAIL",
-                "report_id": "RPT-RETAIL",
-                "target": {"target_type": "stock", "target_id": "600025.SH"},
-                "metric_proxy_mapping": ["stock_forward_return"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": "RPT-RETAIL",
-                "report_type": "个股研报",
-                "sector": "retail",
-                "subsectors": ["食品"],
-                "ts_code": "600025.SH",
-            }
-        ],
-    )
-    technology = build_rke_agent_research_context_from_rows(
-        agent_id="technology",
-        layer="sector",
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-AI",
-                "report_id": "RPT-AI",
-                "target": {
-                    "target_type": "industry",
-                    "target_id": "AI infrastructure",
-                },
-                "metric_proxy_mapping": ["industry_etf_forward_return"],
-                "direction": "positive",
-            }
-        ],
-        metadata=[
-            {
-                "report_id": "RPT-AI",
-                "report_type": "行业研报",
-                "sector": "AI infrastructure",
-            }
-        ],
-    )
-
-    assert consumer["summary"]["item_count"] == 1
-    assert technology["summary"]["item_count"] == 1
 
 
 def test_context_safety_rejects_forbidden_fields():
@@ -644,16 +62,7 @@ def test_max_items_zero_returns_no_context_items():
         agent_id="dollar",
         layer="macro",
         max_items=0,
-        forecasts=[
-            {
-                "forecast_claim_id": "FC-1",
-                "target": {
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                },
-            }
-        ],
+
     )
 
     assert context["context_items"] == []
@@ -847,82 +256,6 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
     assert "item_use_policy_invalid" in str(error.value)
     assert "item_actionability_invalid" in str(error.value)
     assert "item_actionability_guard_invalid" in str(error.value)
-
-
-def test_rke_runtime_context_formats_good_item_shadow_policy():
-    output = rke_research_tools.format_rke_runtime_context(
-        {
-            "agent_id": "macro.dollar",
-            "requested_agent_id": "dollar",
-            "schema_version": SCHEMA_VERSION,
-            "layer": "macro",
-            "as_of_date": "2026-06-27",
-            "research_only": True,
-            "production_signal_allowed": False,
-            "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v3",
-            "context_items": [
-                {
-                    "redacted_claim_id": "FCRED-1",
-                    "available_date": "2026-06-20",
-                    "target_type": "macro_series",
-                    "target_id": "USDCNY",
-                    "metric_family": "fx_rate",
-                    "expected_direction": "positive",
-                    "horizon_bucket": "medium",
-                    "regime_bucket": "fx_usd_cycle",
-                    "regime_types": ["fx_usd_cycle"],
-                    "source_performance_bucket": "supportive_evidence",
-                    "viewpoint_performance_bucket": "supportive_evidence",
-                    "agent_target_specificity_bucket": "direct_agent_target_match",
-                    "performance_context_match": "source_and_viewpoint_profile_match",
-                    "combined_research_prior_weight": 1.2,
-                    "freshness_bucket": "historical_completed_exit",
-                    "latest_completed_exit_date": "2026-06-20",
-                    "statistical_reliability_bucket": "limited",
-                    "n_effective": 3.0,
-                    "known_failure_mode_tags": [],
-                    "recipe_ids": [],
-                    "tool_gap_ids": [],
-                    "context_snapshot_status": "not_required",
-                    "context_snapshot_missing_reasons": [],
-                    "outcome_label_summary": {
-                        "label_count": 1,
-                        "directional_hit_count": 1,
-                        "pending_label_count": 0,
-                        "pending_share": 0.0,
-                        "label_types": ["macro_series_directional"],
-                        "latest_completed_exit_date": "2026-06-20",
-                    },
-                    "retrieval_rank": 1,
-                    "priority_bucket": "high",
-                    "ranking_reason_codes": ["agent_specific_match"],
-                    "current_data_required": True,
-                    "current_data_required_fields": ["current_data_confirmation"],
-                    "production_signal_allowed": False,
-                    "use_policy": RESEARCH_PRIOR_USE_POLICY,
-                    "actionability": SAFE_ACTIONABILITY,
-                    "actionability_guard": SAFE_ACTIONABILITY,
-                }
-            ],
-            "summary": {
-                "item_count": 1,
-                "matched_item_count": 1,
-                "private_text_included": False,
-                "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-                "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
-                "truncated_item_count": 0,
-                "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v3",
-            },
-        }
-    )
-
-    assert "Available date: 2026-06-20" in output
-    assert f"use_policy={RESEARCH_PRIOR_USE_POLICY}" in output
-    assert f"actionability_guard={SAFE_ACTIONABILITY}" in output
-    assert "production_signal_allowed=false" in output
-    assert "Outcome labels:" not in output
 
 
 def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
@@ -1369,107 +702,10 @@ def test_normalize_agent_id_accepts_ts_and_rke_forms():
     )
 
 
-@pytest.mark.parametrize("optional_value", [None, {"invalid": True}])
-def test_rke_runtime_context_omits_optional_research_metadata(optional_value):
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="financials", layer="sector", as_of_date="2026-07-09",
-        forecasts=[{
-            "forecast_claim_id": "FC-BASIC",
-            "signal_datetime": "2026-07-01",
-            "target": {"target_type": "industry", "target_id": "银行"},
-            "metric_proxy_mapping": ["industry_etf_forward_return"],
-            "direction": "positive",
-        }],
-    )
-    assert len(context["context_items"]) == 1
-    for item in context["context_items"]:
-        for field in (
-            "statistical_reliability_bucket", "source_performance_bucket",
-            "viewpoint_performance_bucket", "performance_context_match",
-            "agent_target_specificity_bucket", "freshness_bucket",
-            "latest_completed_exit_date", "combined_research_prior_weight",
-            "n_effective", "known_failure_mode_tags", "recipe_ids", "tool_gap_ids",
-            "context_snapshot_status", "context_snapshot_missing_reasons",
-            "outcome_label_summary",
-        ):
-            if optional_value is None:
-                item.pop(field, None)
-            else:
-                item[field] = optional_value
-    context["summary"].pop("forbidden_field_count", None)
-    output = rke_research_tools.format_rke_runtime_context(context)
-    assert "### Prior FCRED-" in output
-    assert "Expected direction: positive" in output
-    assert "Current data required: true" in output
-    for label in ("Performance:", "Outcome labels:", "Recipes:", "Tool gaps:", "Failure tags:"):
-        assert label not in output
-
-    context["context_items"][0]["outcome_label_summary"] = {"claim_text": "private prose"}
-    with pytest.raises(DataVendorUnavailable, match="public_safe_context_violation"):
-        rke_research_tools.format_rke_runtime_context(context)
-
-
-def test_basic_context_orders_by_match_availability_and_stable_identity():
-    forecasts = [
-        {
-            "forecast_claim_id": claim_id,
-            "signal_datetime": available,
-            "target": {"target_type": "industry", "target_id": "银行"},
-            "metric_proxy_mapping": ["industry_etf_forward_return"],
-            "direction": direction,
-        }
-        for claim_id, available, direction in [
-            ("FC-OLD", "2026-06-01", "negative"),
-            ("FC-NEW-A", "2026-07-01", "positive"),
-            ("FC-NEW-B", "2026-07-01", "neutral"),
-            ("FC-FUTURE", "2026-08-01", "negative"),
-        ]
-    ]
-    kwargs = dict(agent_id="financials", layer="sector", as_of_date="2026-07-09", max_items=2)
-    context = build_rke_agent_research_context_from_rows(forecasts=forecasts, **kwargs)
-    assert context == build_rke_agent_research_context_from_rows(forecasts=list(reversed(forecasts)), **kwargs)
-    items = context["context_items"]
-    assert len(items) == 2
-    assert all(item["available_date"] == "2026-07-01" for item in items)
-    assert [item["redacted_claim_id"] for item in items] == sorted(item["redacted_claim_id"] for item in items)
-    assert not any("weight" in key or "snapshot" in key or "performance" in key for item in items for key in item)
-    output = rke_research_tools.format_rke_runtime_context(context)
-    assert "context_hash=" not in output
-    assert "Runtime ranking audit:" not in output
-
-    # Explicit target matching precedes recency, independent of input order.
-    forecasts[0]["target_agent_candidates"] = ["sector.financials"]
-    specific = build_rke_agent_research_context_from_rows(forecasts=forecasts, **kwargs)
-    assert specific["context_items"][0]["expected_direction"] == "negative"
-    assert specific["context_items"][0]["available_date"] == "2026-06-01"
-
-
-@pytest.mark.parametrize("available_date", [None, "invalid", "2026-07-10"])
-def test_runtime_rejects_unknown_invalid_or_future_availability(available_date):
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="financials", layer="sector", as_of_date="2026-07-09",
-        forecasts=[{
-            "forecast_claim_id": "FC-PIT",
-            "signal_datetime": "2026-07-01",
-            "target": {"target_type": "industry", "target_id": "银行"},
-            "metric_proxy_mapping": ["industry_etf_forward_return"],
-        }],
-    )
-    assert "### Prior" in rke_research_tools.format_rke_runtime_context(context)
-    context["context_items"][0]["available_date"] = available_date
-    with pytest.raises(DataVendorUnavailable, match="item_available_date_"):
-        rke_research_tools.format_rke_runtime_context(context)
-
-
 def test_basic_context_respects_later_report_accessibility():
     context = build_rke_agent_research_context_from_rows(
         agent_id="financials", layer="sector", as_of_date="2026-07-09",
-        forecasts=[{
-            "forecast_claim_id": "FC-ACCESS", "report_id": "RPT-ACCESS",
-            "signal_datetime": "2026-07-01",
-            "target": {"target_type": "industry", "target_id": "银行"},
-            "metric_proxy_mapping": ["industry_etf_forward_return"],
-        }],
+
         metadata=[{
             "report_id": "RPT-ACCESS", "publish_datetime": "2026-07-01",
             "accessible_datetime": "2026-07-10",
@@ -1478,28 +714,6 @@ def test_basic_context_respects_later_report_accessibility():
     assert context["context_items"] == []
 
 
-def test_basic_query_observes_same_size_same_mtime_input_updates(tmp_path):
-    import os
-
-    registry_dir = tmp_path / "registry/report_intelligence"
-    registry_dir.mkdir(parents=True)
-    path = registry_dir / "forecast_claims.jsonl"
-    claim = {
-        "forecast_claim_id": "FC-1", "source_id": "SRC-1",
-        "signal_datetime": "2026-07-01",
-        "target": {"target_type": "industry", "target_id": "银行"},
-        "metric_proxy_mapping": ["industry_etf_forward_return"], "direction": "positive",
-    }
-    _write_jsonl(path, [claim])
-    (registry_dir / "report_metadata.jsonl").write_text("")
-    args = dict(root=tmp_path, agent_id="financials", layer="sector", sector="银行", as_of_date="2026-07-09")
-    before = build_rke_agent_research_context(**args)
-    assert len(before["context_items"]) == 1
-    stat = path.stat()
-    path.write_bytes(path.read_bytes().replace(b"2026-07-01", b"2026-08-01"))
-    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    assert path.stat().st_size == stat.st_size
-    assert build_rke_agent_research_context(**args)["context_items"] == []
 def test_research_cases_reach_runtime_with_authorization_pit_and_source_diversity(tmp_path):
     case = {
         "question": "Inventory and margins", "historical_regime": "Inventory liquidation",
@@ -1544,6 +758,11 @@ def test_research_cases_reach_runtime_with_authorization_pit_and_source_diversit
         root=tmp_path, agent_id="semiconductor", as_of_date="2026-01-01", max_items=2,
     )
     assert materialized["context"] == context
+    assert "forecast_claims.jsonl" not in materialized["input_bytes"]
+    (directory / "forecast_claims.jsonl").write_text("not valid JSON: retired")
+    assert build_rke_agent_research_materialization(
+        root=tmp_path, agent_id="semiconductor", as_of_date="2026-01-01", max_items=2,
+    ) == materialized
     assert set(materialized["source_ids"]) == {"SRC-R1", "SRC-R2"}
     assert materialized["input_bytes"]["analytical_footprints.jsonl"] == (
         directory / "analytical_footprints.jsonl"
@@ -1556,23 +775,6 @@ def test_research_cases_reach_runtime_with_authorization_pit_and_source_diversit
     assert {r["redacted_claim_id"] for r in context["context_items"]} != {
         r["redacted_claim_id"] for r in first_only["context_items"]
     }
-
-
-def test_historical_regime_provenance_is_not_collapsed():
-    context = build_rke_agent_research_context_from_rows(
-        agent_id="cio", as_of_date="2026-01-01", forecasts=[{
-            "forecast_claim_id": "F", "signal_datetime": "2025-01-01",
-            "target": {"target_type": "stock", "target_id": "000001.SZ"},
-            "claim_regime_trace": {"macro": {"macro.china": {
-                "regime_types": ["source_condition", "external_historical_background"],
-                "source_text_regime_types": ["source_condition"],
-                "as_of_date_regime_types": ["external_historical_background"],
-            }}},
-        }],
-    )
-    item = context["context_items"][0]
-    assert item["source_stated_regime_types"] == ["source_condition"]
-    assert item["historical_date_regime_types"] == ["external_historical_background"]
 
 
 def test_macro_research_case_is_not_routed_as_a_generic_industry():
@@ -1691,3 +893,12 @@ def test_decision_agent_name_is_stable_through_runtime_preflight(agent_id, layer
         agent_id=agent_id, layer=layer, as_of_date="2026-09-12",
     )
     assert "No matching RKE context" in rke_research_tools.format_rke_runtime_context(context)
+
+
+def test_standalone_forecasts_cannot_be_retrieved_or_formatted(tmp_path):
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    (directory / "forecast_claims.jsonl").write_text("not valid JSON: retired")
+    context = build_rke_agent_research_context(root=tmp_path, agent_id="cio", as_of_date="2026-01-01")
+    assert context["context_items"] == []
+    assert "No matching RKE context" in format_rke_agent_research_context(context)

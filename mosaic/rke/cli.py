@@ -127,7 +127,6 @@ from .report_intelligence import (
     apply_analytical_footprint_review_import,
     build_analytical_footprint_negative_example_progress,
     build_local_macro_strategy_report_sources,
-    export_macro_agent_research_priors,
     merge_report_intelligence_batch_outputs,
     migrate_tool_gap_reviews,
     build_data_acquisition_proposals,
@@ -1935,36 +1934,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    export_macro_priors = subparsers.add_parser(
-        "export-macro-agent-priors",
-        help="Export redacted shadow macro agent research priors for downstream agents.",
-    )
-    export_macro_priors.add_argument(
-        "--root", default=".", help="Repository root. Defaults to current directory."
-    )
-    export_macro_priors.add_argument(
-        "--registry-dir",
-        help=(
-            "Report Intelligence registry directory. Defaults to the shared private "
-            "registry resolver."
-        ),
-    )
-    export_macro_priors.add_argument(
-        "--as-of-date",
-        default="",
-        help="Only include priors with as_of_date <= this YYYY-MM-DD date.",
-    )
-    export_macro_priors.add_argument(
-        "--agent-id",
-        default="",
-        help="Optional macro agent id such as macro.central_bank.",
-    )
-    export_macro_priors.add_argument(
-        "--no-source-prose",
-        action="store_true",
-        help="Drop any row that fails the public-safe no-source-prose guard.",
-    )
-
     export_agent_context = subparsers.add_parser(
         "export-rke-agent-context",
         help="Export redacted ranked RKE research context for one downstream agent.",
@@ -3105,17 +3074,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         _print_json(asdict(result))
         return 0 if result.blocker_count == 0 else 2
-
-    if args.command == "export-macro-agent-priors":
-        result = export_macro_agent_research_priors(
-            root=root,
-            registry_dir=args.registry_dir,
-            as_of_date=args.as_of_date,
-            agent_id=args.agent_id,
-            no_source_prose=args.no_source_prose,
-        )
-        _print_json(result)
-        return 0 if result.get("accepted") else 2
 
     if args.command == "export-rke-agent-context":
         result = build_rke_agent_research_context(
