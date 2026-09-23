@@ -7932,7 +7932,7 @@ def test_report_intelligence_evolution_gate_rejects_standalone_prediction_contex
     check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
     assert check["passed"] is False
     evidence = check["evidence"]
-    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v5"
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v6"
     assert evidence["ranked_context_agent_count"] == 0
     assert evidence["no_prior_reason_agent_count"] >= 1
     assert evidence["current_data_guard_violation_count"] == 0
