@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
+import { boundCurrentPositions } from "../src/agents/helpers/bound_runtime_inputs.js";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { buildMacroInputGateNode } from "../src/agents/macro/_input_gate.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
 import { DAILY_CYCLE_STAGE_ROSTER } from "../src/cli/commands/daily-cycle.js";
@@ -102,6 +104,46 @@ afterEach(() => {
 });
 
 describe("daily-cycle Agent-stage checkpoint", () => {
+  it("restores a legacy empty-position hash without rewriting accepted checkpoint evidence", () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-legacy-"));
+    checkpointRoots.push(root);
+    const path = join(root, "checkpoint.json");
+    const checkpoint = DailyCycleCheckpoint.open({ path, ...CHECKPOINT_INPUT });
+    if (!checkpoint) throw new Error("expected a fresh checkpoint");
+    const state = makeState();
+    state.current_positions.position_snapshot_hash = "sha256:empty_positions";
+    state.position_audit = {
+      ...state.position_audit,
+      position_snapshot_hash: "sha256:empty_positions",
+      snapshot_status: "empty_confirmed",
+      position_source: "empty_confirmed",
+      source_error_code: null,
+      positions_loaded: 0,
+    };
+    checkpoint.commit("stage_a", state, new AcceptedAgentOutputStore());
+    const before = readFileSync(path, "utf-8");
+
+    const resumed = DailyCycleCheckpoint.open({ path, resume: true, ...CHECKPOINT_INPUT });
+    const restored = resumed?.restoredState;
+    if (!restored) throw new Error("expected restored state");
+    expect(resumed?.completedStages).toEqual(["stage_a"]);
+    expect(restored.current_positions.position_snapshot_hash).toBe(canonicalJsonHash([]));
+    expect(restored.position_audit.position_snapshot_hash).toBe(canonicalJsonHash([]));
+    expect(boundCurrentPositions(restored.current_positions).position_snapshot_hash).toBe(
+      canonicalJsonHash([]),
+    );
+    expect(readFileSync(path, "utf-8")).toBe(before);
+
+    state.current_positions.snapshot_status = "loaded";
+    const invalidPath = join(root, "invalid.json");
+    const invalid = DailyCycleCheckpoint.open({ path: invalidPath, ...CHECKPOINT_INPUT });
+    if (!invalid) throw new Error("expected a fresh checkpoint");
+    invalid.commit("stage_a", state, new AcceptedAgentOutputStore());
+    expect(() =>
+      DailyCycleCheckpoint.open({ path: invalidPath, resume: true, ...CHECKPOINT_INPUT }),
+    ).toThrow("legacy empty-position checkpoint is inconsistent");
+  });
+
   it("resumes only the interrupted stage and preserves the uninterrupted lineage", async () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-"));
     checkpointRoots.push(root);

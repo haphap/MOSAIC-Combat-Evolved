@@ -603,6 +603,14 @@ export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): 
 }
 
 export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<AgentToolLoopResult> {
+  const rkeEnabled = process.env.MOSAIC_RKE_ENABLED === "1";
+  const tools = opts.tools.filter((tool) => rkeEnabled || tool.name !== RKE_TOOL_NAME);
+  const initialToolCalls = opts.initialToolCalls?.filter(
+    (call) => rkeEnabled || call.name !== RKE_TOOL_NAME,
+  );
+  const systemMessage = rkeEnabled
+    ? opts.systemMessage
+    : `${opts.systemMessage}\n\nRKE is disabled for this run. Do not call get_rke_research_context or require RKE evidence; analyze the available current evidence independently.`;
   let maxLoops = opts.maxLoops ?? DEFAULT_MAX_LOOPS;
   let admissionRecoveryGranted = false;
   const grantAdmissionRecovery = () => {
@@ -612,7 +620,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   };
   const toolOutputMaxChars = resolveToolOutputMaxChars();
   const replayFullToolMaxChars = opts.replayFullToolMaxChars ?? resolveReplayFullToolMaxChars();
-  const toolByName = new Map(opts.tools.map((t) => [t.name, t] as const));
+  const toolByName = new Map(tools.map((t) => [t.name, t] as const));
   const messages: BaseMessage[] = [...opts.initialMessages];
   let replayMessages: BaseMessage[] = [...opts.initialMessages];
   let llmInvocations = 0;
@@ -647,16 +655,13 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         "switch to a provider/model that supports tool calling (anthropic, openai, ...).",
     );
   }
-  const llmWithTools =
-    opts.allowModelToolCalls === false
-      ? opts.llm
-      : opts.llm.bindTools?.(opts.tools as StructuredToolInterface[]);
+  const llmWithTools = opts.allowModelToolCalls === false ? opts.llm : opts.llm.bindTools?.(tools);
   if (!llmWithTools) {
     throw new Error("runAgentToolLoop: provider failed to bind the registered tools.");
   }
 
-  if (opts.initialToolCalls?.length) {
-    const calls = opts.initialToolCalls.map((call, index) => ({
+  if (initialToolCalls?.length) {
+    const calls = initialToolCalls.map((call, index) => ({
       id: `initial_tool_${index + 1}`,
       name: call.name,
       args: call.args,
@@ -806,7 +811,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     );
     const advertiseTools = opts.allowModelToolCalls !== false && remainingModelToolExecutions > 0;
     const budgetDirective =
-      opts.allowModelToolCalls === false || opts.tools.length === 0
+      opts.allowModelToolCalls === false || tools.length === 0
         ? ""
         : "\n\nHard tool-call budget: use at most 3 model-selected tool calls total. " +
           `The remaining budget is ${remainingModelToolExecutions}. ` +
@@ -816,7 +821,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             ? " One execution is reserved for get_rke_research_context until it has been attempted."
             : "");
     const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke(
-      [new SystemMessage(`${opts.systemMessage}${budgetDirective}`), ...replayMessages],
+      [new SystemMessage(`${systemMessage}${budgetDirective}`), ...replayMessages],
       opts.signal ? { signal: opts.signal } : undefined,
     )) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
@@ -1062,7 +1067,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   const finalStartedAt = Date.now();
   const final = (await opts.llm.invoke(
     [
-      new SystemMessage(opts.systemMessage),
+      new SystemMessage(systemMessage),
       ...replayMessages,
       new HumanMessage(
         "Tool budget exhausted. Now write the final structured-friendly analysis " +

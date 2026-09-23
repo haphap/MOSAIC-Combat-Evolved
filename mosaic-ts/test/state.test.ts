@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import {
   appendReducer,
   type DailyCycleState,
@@ -143,6 +144,7 @@ describe("state reducers", () => {
       const audit = emptyPositionAudit();
       expect(positions.snapshot_status).toBe("empty_confirmed");
       expect(positions.positions).toEqual([]);
+      expect(positions.position_snapshot_hash).toBe(canonicalJsonHash([]));
       expect(audit.position_snapshot_hash).toBe(positions.position_snapshot_hash);
       expect(audit.tool_status_summary).toEqual({
         current_positions: "empty_confirmed",

@@ -4602,9 +4602,25 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     expect(llm.structuredCalls).toBeGreaterThan(0);
   });
 
-  it("passes runtime evidence and verified snapshot citations through strict extraction", async () => {
+  it.each([
+    {
+      label: "accepts a CIO proposal within the frozen single-name limit",
+      exactCurrentWeight: Number("0.10004615432680377"),
+      targetWeight: 0.1,
+      accepted: true,
+    },
+    {
+      label: "rejects a CIO proposal above the frozen single-name limit",
+      exactCurrentWeight: Number("0.25004615432680377"),
+      targetWeight: 0.25,
+      accepted: false,
+    },
+  ])("$label with verified snapshot citations", async ({
+    exactCurrentWeight,
+    targetWeight,
+    accepted,
+  }) => {
     const prompt = "FAKE-CIO";
-    const exactCurrentWeight = Number("0.20004615432680377");
     const dir = join(promptDir, "cohort_default", "decision");
     writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
     writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
@@ -4641,7 +4657,6 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
             if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
             const citationId = this.citationId;
             if (!citationId) throw new Error("verified snapshot citation missing from schema");
-            const targetWeight = 0.2;
             return {
               agent_id: "cio",
               decision_stage: "PROPOSAL",
@@ -4731,11 +4746,27 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       baseUrl: undefined,
     };
 
-    const update = await buildCioProposalNode({
+    const node = buildCioProposalNode({
       llmHandle: handle,
       config: testConfig(),
       promptsRoot: promptDir,
-    })(sample);
+    });
+    if (!accepted) {
+      const rejected = await node(sample).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(rejected).toBeInstanceOf(AgentRunContractError);
+      expect(
+        (rejected as AgentRunContractError).audit.attempts.some((attempt) =>
+          attempt.validation_issues.some((issue) =>
+            issue.message.includes("max_single_name_weight"),
+          ),
+        ),
+      ).toBe(true);
+      return;
+    }
+    const update = await node(sample);
     const proposal = (update.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime
       ?.cio_proposal;
 
@@ -4803,6 +4834,7 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     clearPromptCache();
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -4893,7 +4925,11 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     expect(llm.invokeCalls).toBe(1);
   });
 
-  it("injects registered frozen RKE research context into the decision graph", async () => {
+  it.each([
+    undefined,
+    "1",
+  ])("requires opt-in for RKE context in the decision graph: %s", async (setting) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", setting);
     const canned: CroOutput = {
       agent: "cro",
       review_disposition: "NO_OBJECTION",
@@ -4944,9 +4980,12 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     expect(toolCalls).toEqual([]);
     expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
-    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).toContain(
-      "fake-cro-get_rke_research_context",
-    );
+    expect(
+      llm.lastMessages
+        .map((msg) => String(msg.content))
+        .join("\n")
+        .includes("fake-cro-get_rke_research_context"),
+    ).toBe(setting === "1");
   });
 });
 
