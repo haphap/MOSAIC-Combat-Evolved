@@ -30,6 +30,7 @@ import type {
   DarwinianUsageWeightSnapshot,
 } from "../autoresearch/production_variant.js";
 import type { AcceptedOutputRecordRef } from "./accepted_output.js";
+import { canonicalJsonHash } from "./helpers/canonical_json.js";
 import { buildPositionAuditToolStatusSummary } from "./helpers/position_audit.js";
 import type {
   ComponentCalibrationRuntimeInput,
@@ -148,7 +149,7 @@ export function emptyCurrentPositions(): CurrentPositionsSnapshot {
     snapshot_status: "empty_confirmed",
     position_source: "empty_confirmed",
     source_error_code: null,
-    position_snapshot_hash: nullHash("empty_positions"),
+    position_snapshot_hash: canonicalJsonHash([]),
     positions: [],
   };
 }
@@ -176,10 +177,6 @@ export function emptyPositionAudit(): PositionAudit {
     stop_loss_override_count: 0,
     target_current_drift_count: 0,
   };
-}
-
-function nullHash(label: string): string {
-  return `sha256:${label}`;
 }
 
 // ============================================================ Annotation root

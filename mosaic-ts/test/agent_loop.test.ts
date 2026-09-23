@@ -1,6 +1,6 @@
 import { AIMessage, type BaseMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   compactToolOutput,
@@ -23,13 +23,15 @@ import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 
 class ScriptedLlm {
   bindToolsCalled = 0;
+  boundToolNames: string[] = [];
   readonly seenMessages: BaseMessage[][] = [];
   readonly invokeOptions: unknown[] = [];
 
   constructor(private readonly responses: AIMessage[]) {}
 
-  bindTools(): ScriptedLlm {
+  bindTools(tools: ReadonlyArray<{ name: string }>): ScriptedLlm {
     this.bindToolsCalled++;
+    this.boundToolNames = tools.map((tool) => tool.name);
     return this;
   }
 
@@ -43,6 +45,85 @@ class ScriptedLlm {
 }
 
 describe("agent tool loop helpers", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    undefined,
+    "0",
+    "false",
+    "true",
+    "1",
+  ])("requires explicit RKE opt-in for initial collection and model calls: %s", async (setting) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", setting);
+    const enabled = setting === "1";
+    const executions: string[] = [];
+    const rkeName = "get_rke_research_context";
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "rke", name: rkeName, args: { query: "adaptive" } }],
+      }),
+      new AIMessage("done"),
+    ]);
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: ["get_current", rkeName].map((name) =>
+        tool(
+          async ({ query }) => {
+            executions.push(`${name}:${query}`);
+            return name === rkeName ? "Research case FCRED-test" : "current evidence";
+          },
+          { name, description: "test", schema: z.object({ query: z.string() }) },
+        ),
+      ),
+      initialToolCalls: ["get_current", rkeName].map((name) => ({
+        name,
+        args: { query: "initial" },
+      })),
+      reserveRkeQuery: true,
+      systemMessage: "system",
+      initialMessages: [],
+    });
+    expect(llm.boundToolNames).toEqual(enabled ? ["get_current", rkeName] : ["get_current"]);
+    expect(executions).toEqual(
+      enabled
+        ? ["get_current:initial", `${rkeName}:initial`, `${rkeName}:adaptive`]
+        : ["get_current:initial"],
+    );
+    expect(result.toolExecutions).toBe(enabled ? 3 : 1);
+    expect(JSON.stringify(llm.seenMessages).includes("FCRED-test")).toBe(enabled);
+    expect(String(llm.seenMessages[0]?.[0]?.content).includes("RKE is disabled")).toBe(!enabled);
+    expect(String(llm.seenMessages[0]?.[0]?.content)).not.toContain("reserved for");
+  });
+
+  it.each([undefined, "1"])("gates snapshot-only initial RKE collection: %s", async (setting) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", setting);
+    const invokeRke = vi.fn(async () => "Research case FCRED-initial");
+    const llm = new ScriptedLlm([new AIMessage("done")]);
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [
+        tool(invokeRke, {
+          name: "get_rke_research_context",
+          description: "test",
+          schema: z.object({}),
+        }),
+      ],
+      initialToolCalls: [{ name: "get_rke_research_context", args: {} }],
+      allowModelToolCalls: false,
+      systemMessage: "system",
+      initialMessages: [],
+      maxLoops: 0,
+    });
+    expect(invokeRke).toHaveBeenCalledTimes(setting === "1" ? 1 : 0);
+    expect(result.toolCalls).toBe(setting === "1" ? 1 : 0);
+    expect(llm.bindToolsCalled).toBe(0);
+    expect(JSON.stringify(llm.seenMessages).includes("FCRED-initial")).toBe(setting === "1");
+    expect(String(llm.seenMessages[0]?.[0]?.content).includes("RKE is disabled")).toBe(
+      setting !== "1",
+    );
+  });
+
   it("forwards the agent timeout signal to LLM analysis calls", async () => {
     const signal = new AbortController().signal;
     const initial = new ScriptedLlm([new AIMessage("done")]);
@@ -1060,6 +1141,7 @@ describe("agent tool loop helpers", () => {
     "missing_tool",
     "get_rke_research_context",
   ])("replays missing initial %s as marked human evidence while retaining audit messages", async (toolName) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const llm = new ScriptedLlm([new AIMessage("done")]);
 
     const result = await runAgentToolLoop({
@@ -1141,6 +1223,7 @@ describe("agent tool loop helpers", () => {
     "get_fundamentals",
     "get_rke_research_context",
   ])("limits %s executions to three without charging initial calls", async (toolName) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const llm = new ScriptedLlm([
       new AIMessage({
         content: "",
@@ -1232,6 +1315,7 @@ describe("agent tool loop helpers", () => {
     ],
     ["execution_failed", new Error("transport unavailable")],
   ])("records actual RKE outcome %s without counting cached replies as dispatches", async (outcome, response) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const call = {
       id: "first",
       name: "get_rke_research_context",
@@ -1271,6 +1355,7 @@ describe("agent tool loop helpers", () => {
   });
 
   it.each([false, true])("reserves an RKE slot across batches: split=%s", async (split) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const otherCalls = [1, 2, 3].map((value) => ({
       id: `other-${value}`,
       name: "get_other",
@@ -1327,6 +1412,7 @@ describe("agent tool loop helpers", () => {
     false,
     true,
   ])("releases the reservation after an initial RKE attempt: failed=%s", async (failed) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const llm = new ScriptedLlm([
       new AIMessage({
         content: "",

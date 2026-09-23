@@ -4,7 +4,11 @@ import type {
   AcceptedAgentOutputStore,
   AcceptedAgentOutputStoreSnapshot,
 } from "../agents/accepted_output.js";
-import type { DailyCycleStateType, DailyCycleStateUpdate } from "../agents/state.js";
+import {
+  type DailyCycleStateType,
+  type DailyCycleStateUpdate,
+  emptyCurrentPositions,
+} from "../agents/state.js";
 
 interface DailyCycleCheckpointDocument {
   completed_stages: string[];
@@ -154,6 +158,28 @@ function loadCheckpoint(
     completedStages.some((stage, index) => stage !== stageRoster[index])
   ) {
     throw new Error("checkpoint completed stage prefix is invalid");
+  }
+  const positions = parsed.state.current_positions;
+  if (isRecord(positions) && positions.position_snapshot_hash === "sha256:empty_positions") {
+    const audit = parsed.state.position_audit;
+    if (
+      positions.snapshot_status !== "empty_confirmed" ||
+      positions.position_source !== "empty_confirmed" ||
+      positions.source_error_code !== null ||
+      !Array.isArray(positions.positions) ||
+      positions.positions.length !== 0 ||
+      !isRecord(audit) ||
+      audit.position_snapshot_hash !== "sha256:empty_positions" ||
+      audit.snapshot_status !== "empty_confirmed" ||
+      audit.position_source !== "empty_confirmed" ||
+      audit.source_error_code !== null ||
+      audit.positions_loaded !== 0
+    ) {
+      throw new Error("legacy empty-position checkpoint is inconsistent");
+    }
+    const hash = emptyCurrentPositions().position_snapshot_hash;
+    positions.position_snapshot_hash = hash;
+    audit.position_snapshot_hash = hash;
   }
   return parsed as unknown as DailyCycleCheckpointDocument;
 }

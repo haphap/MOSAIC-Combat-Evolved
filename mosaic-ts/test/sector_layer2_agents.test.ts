@@ -1389,6 +1389,7 @@ describe("standard Sector usage lifecycle", () => {
   });
 
   it("lets a real provider select one parameterized adaptive query after initial snapshots", async () => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", undefined);
     const events = {
       reports: [] as SectorModelUsageReport[],
       lifecycle: [] as string[],
@@ -1410,7 +1411,9 @@ describe("standard Sector usage lifecycle", () => {
     })(sectorPipelineState());
 
     expect(update.layer2_outputs).toMatchObject({ energy: expect.any(Object) });
-    expect(llm.boundToolNames).toEqual(agentToolsFor("energy"));
+    expect(llm.boundToolNames).toEqual(
+      agentToolsFor("energy").filter((name) => name !== "get_rke_research_context"),
+    );
     expect(llm.adaptiveInvocations).toBe(3);
     expect(events.toolCalls).toEqual([
       { name: "get_sector_research_snapshot", args: {} },

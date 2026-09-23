@@ -911,13 +911,23 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
   const runId = state.trace_id || state.as_of_date || "current_run";
   const runtimeOutput = decisionSubmissionToRuntimeOutput(output, state, acceptedOutputStore);
   if (spec.runtimeStage === "cio_proposal") {
+    const proposal = runtimeOutput as CioOutput;
+    const maxSingleNameWeight =
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.policies.cro.max_single_name_weight;
+    for (const action of proposal.portfolio_actions) {
+      if (action.target_weight > maxSingleNameWeight + 1e-9) {
+        throw new Error(
+          `${action.ticker}: CIO proposal target_weight exceeds max_single_name_weight`,
+        );
+      }
+    }
     assertCioProposalActionsUseAcceptedOpportunities(
       state,
-      runtimeOutput as CioOutput,
+      proposal,
       structuredSmokeCioProposalFrozen,
       acceptedOutputStore,
     );
-    freezeCioProposal(state, runtimeOutput as CioOutput);
+    freezeCioProposal(state, proposal);
     return;
   }
   if (spec.runtimeStage === "cro_review") {

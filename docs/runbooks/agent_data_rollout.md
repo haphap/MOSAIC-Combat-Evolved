@@ -83,6 +83,67 @@ operator/provider capability setting rather than a machine-specific constant.
 The commands above remain a non-production structured-smoke route; the same-day
 checkpoint flags are also available to live and paper daily-cycle runs.
 
+## One-day normal cycle without paper execution
+
+For an operator-approved real-data diagnostic, use the normal warm-first path,
+not structured smoke or paper execution. If the completion-token setting changes,
+start with a new checkpoint; never resume an accepted prefix produced under a
+different setting. Set an operator-approved per-request completion limit
+explicitly; the current NInfer server defaults to 8192 tokens when no limit is
+sent. The model server also has a finite context limit.
+
+```bash
+set -euo pipefail
+export MOSAIC_ENV_FILE="${MOSAIC_ENV_FILE:?set private environment file}"
+set -a
+source "${MOSAIC_ENV_FILE}"
+set +a
+export MOSAIC_REPO_ROOT="${MOSAIC_REPO_ROOT:?set repository root}"
+export MOSAIC_PYTHON="${MOSAIC_PYTHON:?set repository Python executable}"
+export PYTHONPATH="${MOSAIC_REPO_ROOT}"
+export MOSAIC_BRIDGE_TIMEOUT_MS="${MOSAIC_BRIDGE_TIMEOUT_MS:-1800000}"
+export MOSAIC_LLM_PROVIDER="${MOSAIC_LLM_PROVIDER:?set provider}"
+export MOSAIC_LLM_BASE_URL="${MOSAIC_LLM_BASE_URL:?set provider endpoint}"
+export MOSAIC_LLM_MODEL="${MOSAIC_LLM_MODEL:?set provider model}"
+: "${MOSAIC_LLM_API_KEY:?load API key from env/secret store}"
+export MAX_TOKENS="${MAX_TOKENS:?set operator-approved completion limit}"
+export MOSAIC_LLM_THINKING_MODE="${MOSAIC_LLM_THINKING_MODE:-enabled}"
+export MOSAIC_RKE_ENABLED=0
+export RUN_DATE="${RUN_DATE:?set YYYY-MM-DD trading date}"
+export MOSAIC_PROMPTS_REPO="${MOSAIC_PROMPTS_REPO:?set private Prompt repository}"
+unset MOSAIC_ENSURE_SNAPSHOT_MODE MOSAIC_LLM_MAX_TOKENS
+
+cd "${MOSAIC_REPO_ROOT}"
+rtk mkdir -p .mosaic/tmp
+CYCLE_ARTIFACT_ROOT="$(mktemp -d "${MOSAIC_REPO_ROOT}/.mosaic/tmp/normal-cycle.XXXXXX")"
+CHECKPOINT_PATH="${CYCLE_ARTIFACT_ROOT}/${RUN_DATE}.checkpoint.json"
+OUTPUT_PATH="${CYCLE_ARTIFACT_ROOT}/${RUN_DATE}.state.json"
+daily_cycle_args=(
+  --cohort cohort_default --date "${RUN_DATE}"
+  --checkpoint "${CHECKPOINT_PATH}" --out "${OUTPUT_PATH}"
+  --llm-provider "${MOSAIC_LLM_PROVIDER}" --model "${MOSAIC_LLM_MODEL}"
+  --base-url "${MOSAIC_LLM_BASE_URL}" --prompts-repo "${MOSAIC_PROMPTS_REPO}"
+  --agent-timeout-seconds 1800 --max-tokens "${MAX_TOKENS}"
+)
+rtk pnpm --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}"
+```
+
+No `--paper-positions`, `--paper-execute-deltas`, or `--resume` is used on the
+initial call. After an interruption, resume only with the same arguments and
+checkpoint plus `--resume`. Completion requires all 26 stages and a written
+final state; this route makes no paper fills.
+
+If pnpm stops before the CLI because its pre-run check reports only workspace
+structure drift, do not approve a `node_modules` purge. First verify the
+checked-out lockfile matches the installed lockfile byte-for-byte and that
+typechecking passes. Only then run the same CLI with pnpm's check set to `warn`:
+
+```bash
+rtk proxy cmp -s mosaic-ts/pnpm-lock.yaml mosaic-ts/node_modules/.pnpm/lock.yaml
+rtk pnpm --config.verify-deps-before-run=warn --dir mosaic-ts typecheck
+rtk pnpm --config.verify-deps-before-run=warn --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}"
+```
+
 ## Twenty-trading-day normal paper cycle
 
 Run 20 separate normal `daily-cycle` processes. This is not replay or backtest:

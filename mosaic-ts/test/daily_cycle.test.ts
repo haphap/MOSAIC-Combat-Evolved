@@ -700,12 +700,12 @@ function emptyState(): DailyCycleStateType {
       snapshot_status: "empty_confirmed",
       position_source: "empty_confirmed",
       source_error_code: null,
-      position_snapshot_hash: "sha256:empty_positions",
+      position_snapshot_hash: canonicalJsonHash([]),
       positions: [],
     },
     position_reviews: [],
     position_audit: {
-      position_snapshot_hash: "sha256:empty_positions",
+      position_snapshot_hash: canonicalJsonHash([]),
       snapshot_status: "empty_confirmed",
       position_source: "empty_confirmed",
       source_error_code: null,
@@ -1080,6 +1080,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -1087,6 +1088,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
   it.each(
     MACRO_AGENT_IDS,
   )("%s reads its initial RKE context through the capability API", async (agent) => {
+    vi.stubEnv("MOSAIC_RKE_ENABLED", "1");
     const llm = new ScriptedLlm26();
     const seenAnalysis: string[] = [];
     const invoke = llm.invoke.bind(llm);
